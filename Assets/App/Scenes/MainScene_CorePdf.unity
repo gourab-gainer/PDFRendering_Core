@@ -99,7 +99,7 @@ LightmapSettings:
     m_LightProbeSampleCountMultiplier: 4
   m_LightingDataAsset: {fileID: 112000000, guid: 736569debbc27ee49b4c7f92240cd87e,
     type: 2}
-  m_UseShadowmask: 1
+  m_UseShadowmask: 0
 --- !u!196 &4
 NavMeshSettings:
   serializedVersion: 2
@@ -1115,7 +1115,6 @@ GameObject:
   - component: {fileID: 163398915}
   - component: {fileID: 163398919}
   - component: {fileID: 163398918}
-  - component: {fileID: 163398917}
   - component: {fileID: 163398916}
   m_Layer: 5
   m_Name: PdfControllerCanvas
@@ -1159,32 +1158,6 @@ MonoBehaviour:
   obj: {fileID: 2117819076}
   spawnPoint: {x: 0, y: 0, z: 0}
   pdf: {fileID: 1565639826}
---- !u!114 &163398917
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 163398914}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e3fa6692f13f38c4eb998a44a423b7b0, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  m_PDFViewer: {fileID: 1565639826}
-  selectBtn: {fileID: 418439470}
-  watchBtn: {fileID: 708522756}
-  fileNameTxt: {fileID: 1528455989}
-  pageContainer: {fileID: 1403391851}
-  pages: []
-  pagesTex: []
-  pdfMesh: {fileID: 0}
-  SelectionScreen: {fileID: 509958141}
-  rawImageTexture: {fileID: 0}
-  pdfs: []
-  pdfPrototype: {fileID: 0}
-  pdfContainer: {fileID: 0}
-  choosePdfCanvas: {fileID: 0}
 --- !u!114 &163398918
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -11981,7 +11954,7 @@ MonoBehaviour:
   m_ZoomStep: 0.25
   m_ZoomToGo: 1.0661057
   m_VerticalMarginBetweenPages: 20
-  m_UnloadOnDisable: 1
+  m_UnloadOnDisable: 0
   m_ShowVerticalScrollBar: 1
   m_ShowBookmarksViewer: 1
   m_ShowHorizontalScrollBar: 1
