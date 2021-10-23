@@ -1,24 +1,20 @@
 ﻿using Paroxe.PdfRenderer.WebGL;
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
+using Paroxe.PdfRenderer.Internal;
 using UnityEngine;
+using System.Collections; // For WebGL
 
 namespace Paroxe.PdfRenderer
 {
     /// <summary>
     /// Represents a PDF page inside document.
     /// </summary>
-    public class PDFPage : IDisposable, IEquatable<PDFPage>
+    public sealed class PDFPage : IDisposable, IEquatable<PDFPage>, ICoordinatedNativeDisposable
     {
-        private bool m_Disposed;
         private IntPtr m_NativePointer;
         private PDFDocument m_Document;
         private int m_PageIndex;
-#if !UNITY_WEBGL || UNITY_EDITOR
-        private static Dictionary<IntPtr, int> s_InstanceMap = new Dictionary<IntPtr, int>();
-#endif
 
         /// <summary>
         /// Rotations are clockwise
@@ -34,14 +30,11 @@ namespace Paroxe.PdfRenderer
         public static PDFJS_Promise<PDFPage> LoadPageAsync(PDFDocument document, int pageIndex)
         {
             PDFJS_Promise<PDFPage> pagePromise = new PDFJS_Promise<PDFPage>();
+
 #if UNITY_WEBGL && !UNITY_EDITOR
-
-
             LoadPageParameters parameters = new LoadPageParameters(document, pageIndex);
 
             PDFJS_Library.Instance.PreparePromiseCoroutine(LoadPageCoroutine, pagePromise, parameters).Start();
-
-
 #else
             pagePromise.HasFinished = true;
             pagePromise.HasSucceeded = true;
@@ -55,11 +48,13 @@ namespace Paroxe.PdfRenderer
 #if UNITY_WEBGL && !UNITY_EDITOR
         public PDFPage(PDFDocument document, IntPtr pageHandle, int pageIndex)
         {
-            PDFLibrary.AddRef("PDFPage");
+            if (document == null)
+                throw new ArgumentNullException("document");
+            if (pageIndex < 0)
+                throw new ArgumentOutOfRangeException("pageIndex");
 
             m_Document = document;
             m_PageIndex = pageIndex;
-
             m_NativePointer = pageHandle;
         }
 #endif
@@ -68,73 +63,49 @@ namespace Paroxe.PdfRenderer
         public PDFPage(PDFDocument document, int pageIndex)
         {
             if (document == null)
-                throw new NullReferenceException();
+                throw new ArgumentNullException("document");
             if (pageIndex < 0)
-                throw new ArgumentOutOfRangeException();
-
-            PDFLibrary.AddRef("PDFPage");
+                throw new ArgumentOutOfRangeException("pageIndex");
 
             m_Document = document;
             m_PageIndex = pageIndex;
 
-            m_NativePointer = FPDF_LoadPage(document.NativePointer, m_PageIndex);
+            PDFLibrary.Instance.DisposeCoordinator.EnsureNativeLibraryIsInitialized();
 
-            if (m_NativePointer != IntPtr.Zero)
+            lock (PDFLibrary.nativeLock)
             {
-                if (s_InstanceMap.ContainsKey(m_NativePointer))
-                {
-                    s_InstanceMap[m_NativePointer] = s_InstanceMap[m_NativePointer] + 1;
-                }
-                else
-                    s_InstanceMap[m_NativePointer] = 1;
+	            m_NativePointer = NativeMethods.FPDF_LoadPage(document.NativePointer, m_PageIndex);
+
+	            if (m_NativePointer != IntPtr.Zero)
+						PDFLibrary.Instance.DisposeCoordinator.AddReference(this);
             }
         }
 #endif
 
         ~PDFPage()
         {
-            Dispose(false);
+	        Close();
         }
 
         public void Dispose()
         {
-            Dispose(true);
+	        Close();
+
             GC.SuppressFinalize(this);
         }
 
-        protected virtual void Dispose(bool disposing)
+        private void Close()
         {
-            if (!m_Disposed)
-            {
-                if (m_NativePointer != IntPtr.Zero)
-                {
+	        if (m_NativePointer == IntPtr.Zero)
+		        return;
+
 #if !UNITY_WEBGL || UNITY_EDITOR
-
-                    lock (PDFLibrary.nativeLock)
-                    {
-                        s_InstanceMap[m_NativePointer] = s_InstanceMap[m_NativePointer] - 1;
-
-                        if (s_InstanceMap[m_NativePointer] == 0)
-                        {
-							if (m_Document.NativePointer != IntPtr.Zero)
-								FPDF_ClosePage(m_NativePointer);
-                            s_InstanceMap.Remove(m_NativePointer);
-                            m_NativePointer = IntPtr.Zero;
-                        }
-                    }
-
+            PDFLibrary.Instance.DisposeCoordinator.RemoveReference(this);
 #else
-                    PDFJS_ClosePage(m_NativePointer.ToInt32());
-                    m_NativePointer = IntPtr.Zero;
+					NativeMethods.PDFJS_ClosePage(m_NativePointer.ToInt32());
 #endif
+                    m_NativePointer = IntPtr.Zero;
                 }
-
-                PDFLibrary.RemoveRef("PDFPage");
-
-                m_Disposed = true;
-            }
-            
-        }
 
         public IntPtr NativePointer
         {
@@ -157,26 +128,19 @@ namespace Paroxe.PdfRenderer
             return m_Document.GetPageSize(m_PageIndex) * scale;
 #else
             return new Vector2(
-                PDFJS_GetPageWidth(m_NativePointer.ToInt32(), scale),
-                PDFJS_GetPageHeight(m_NativePointer.ToInt32(), scale));
+                NativeMethods.PDFJS_GetPageWidth(m_NativePointer.ToInt32(), scale),
+                NativeMethods.PDFJS_GetPageHeight(m_NativePointer.ToInt32(), scale));
 #endif
-
         }
-
 
 #if UNITY_WEBGL && !UNITY_EDITOR
         internal static Vector2 GetPageSize(IntPtr pageHandle, float scale = 1.0f)
         {
-
             return new Vector2(
-                PDFJS_GetPageWidth(pageHandle.ToInt32(), scale),
-                PDFJS_GetPageHeight(pageHandle.ToInt32(), scale));
-
+                NativeMethods.PDFJS_GetPageWidth(pageHandle.ToInt32(), scale),
+                NativeMethods.PDFJS_GetPageHeight(pageHandle.ToInt32(), scale));
         }
 #endif
-
-
-
 
 #if !UNITY_WEBGL
         /// <summary>
@@ -185,12 +149,12 @@ namespace Paroxe.PdfRenderer
         /// <returns></returns>
         public PDFTextPage GetTextPage()
         {
-            return new PDFTextPage(this);
+	        return new PDFTextPage(this);
         }
 
         public PDFLink GetLinkAtPoint(Vector2 pagePoint)
         {
-            IntPtr linkPtr = FPDFLink_GetLinkAtPoint(m_NativePointer, pagePoint.x, pagePoint.y);
+            IntPtr linkPtr = NativeMethods.FPDFLink_GetLinkAtPoint(m_NativePointer, pagePoint.x, pagePoint.y);
             if (linkPtr != IntPtr.Zero)
                 return new PDFLink(this, linkPtr);
             return null;
@@ -198,7 +162,7 @@ namespace Paroxe.PdfRenderer
 
         public PDFLink GetLinkAtPoint(double pageX, double pageY)
         {
-            IntPtr linkPtr = FPDFLink_GetLinkAtPoint(m_NativePointer, pageX, pageY);
+            IntPtr linkPtr = NativeMethods.FPDFLink_GetLinkAtPoint(m_NativePointer, pageX, pageY);
             if (linkPtr != IntPtr.Zero)
                 return new PDFLink(this, linkPtr);
             return null;
@@ -208,17 +172,17 @@ namespace Paroxe.PdfRenderer
         {
             double pageX;
             double pageY;
-            FPDF_DeviceToPage(m_NativePointer, startX, startY, sizeX, sizeY, (int) rotation, deviceX, deviceY, out pageX,
+            NativeMethods.FPDF_DeviceToPage(m_NativePointer, startX, startY, sizeX, sizeY, (int)rotation, deviceX, deviceY, out pageX,
                 out pageY);
 
-            return new Vector2((float) pageX, (float) pageY);
+            return new Vector2((float)pageX, (float)pageY);
         }
 
         public Vector2 PageToDevice(int startX, int startY, int sizeX, int sizeY, PageRotation rotation, int pageX, int pageY)
         {
             int deviceX;
             int deviceY;
-            FPDF_PageToDevice(m_NativePointer, startX, startY, sizeX, sizeY, (int) rotation, pageX, pageY, out deviceX,
+            NativeMethods.FPDF_PageToDevice(m_NativePointer, startX, startY, sizeX, sizeY, (int)rotation, pageX, pageY, out deviceX,
                 out deviceY);
 
             return new Vector2(deviceX, deviceY);
@@ -226,12 +190,12 @@ namespace Paroxe.PdfRenderer
 
         public Vector2 ConvertPagePositionToUnityUIDevicePosition(Vector2 pagePoint, Vector2 devicePageSize)
         {
-            pagePoint = pagePoint.x/(devicePageSize.y/devicePageSize.x)*Vector2.right + pagePoint.y*Vector2.up;
+            pagePoint = pagePoint.x / (devicePageSize.y / devicePageSize.x) * Vector2.right + pagePoint.y * Vector2.up;
 
             int device_x;
             int device_y;
 
-            FPDF_PageToDevice(m_NativePointer, 0, 0, (int) devicePageSize.y, (int) devicePageSize.y, 0, pagePoint.x,
+            NativeMethods.FPDF_PageToDevice(m_NativePointer, 0, 0, (int)devicePageSize.y, (int)devicePageSize.y, 0, pagePoint.x,
                 pagePoint.y, out device_x, out device_y);
 
             return new Vector2(device_x, device_y);
@@ -251,21 +215,43 @@ namespace Paroxe.PdfRenderer
 
         public Vector2 ConvertUnityUIDevicePositionToPagePosition(Vector2 devicePoint, Vector2 devicePageSize)
         {
-            devicePoint = devicePoint.x*(devicePageSize.y/devicePageSize.x)*Vector2.right + devicePoint.y*Vector2.up;
+            devicePoint = devicePoint.x * (devicePageSize.y / devicePageSize.x) * Vector2.right + devicePoint.y * Vector2.up;
 
             double page_x;
             double page_y;
 
-            FPDF_DeviceToPage(m_NativePointer, 0, 0, (int) devicePageSize.y, (int) devicePageSize.y, 0,
-                (int) devicePoint.x, (int) devicePoint.y, out page_x, out page_y);
+            NativeMethods.FPDF_DeviceToPage(m_NativePointer, 0, 0, (int)devicePageSize.y, (int)devicePageSize.y, 0,
+                (int)devicePoint.x, (int)devicePoint.y, out page_x, out page_y);
 
-            return new Vector2((float) page_x, (float) page_y);
+            return new Vector2((float)page_x, (float)page_y);
         }
 
 #endif
         public bool Equals(PDFPage other)
         {
+	        if (other == null)
+		        return false;
+
             return (m_NativePointer != IntPtr.Zero && m_NativePointer == other.m_NativePointer);
+        }
+
+        IntPtr ICoordinatedNativeDisposable.NativePointer
+        {
+	        get { return NativePointer; }
+        }
+
+        ICoordinatedNativeDisposable ICoordinatedNativeDisposable.NativeParent
+        {
+	        get { return m_Document; }
+        }
+
+        Action<IntPtr> ICoordinatedNativeDisposable.GetDisposeMethod()
+		{
+#if !UNITY_WEBGL || UNITY_EDITOR
+            return NativeMethods.FPDF_ClosePage;
+#else
+			return null;
+#endif
         }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -291,7 +277,7 @@ namespace Paroxe.PdfRenderer
 
             LoadPageParameters parameters = par as LoadPageParameters;
 
-            PDFJS_LoadPage(promise.PromiseHandle, parameters.document.NativePointer.ToInt32(), parameters.pageIndex + 1);
+            NativeMethods.PDFJS_LoadPage(promise.PromiseHandle, parameters.document.NativePointer.ToInt32(), parameters.pageIndex + 1);
 
             while (!pagePromise.HasReceivedJSResponse)
                 yield return null;
@@ -315,38 +301,5 @@ namespace Paroxe.PdfRenderer
             }
         }
 #endif
-
-        #region NATIVE
-#if !UNITY_WEBGL || UNITY_EDITOR
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern IntPtr FPDF_LoadPage(IntPtr document, int page_index);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void FPDF_ClosePage(IntPtr page);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern IntPtr FPDFLink_GetLinkAtPoint(IntPtr page, double x, double y);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void FPDF_DeviceToPage(IntPtr page, int start_x, int start_y, int size_x, int size_y, 
-        int rotate, int device_x, int device_y, out double page_x, out double page_y);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void FPDF_PageToDevice(IntPtr page, int start_x, int start_y, int size_x, int size_y, 
-        int rotate, double page_x, double page_y, out int device_x, out int device_y);
-#else
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void PDFJS_LoadPage(string promiseHandle, int documentHandle, int pageIndex);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void PDFJS_ClosePage(int pageHandle);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern int PDFJS_GetPageWidth(int pageHandle, float scale);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern int PDFJS_GetPageHeight(int pageHandle, float scale);
-#endif
-#endregion
     }
 }

@@ -1,12 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
+using Paroxe.PdfRenderer.Internal;
 using UnityEngine;
-#if NETFX_CORE && !UNITY_WSA_10_0
-using WinRTLegacy.Text;
-#else
-using System.Text;
-#endif
 
 namespace Paroxe.PdfRenderer
 {
@@ -14,69 +9,49 @@ namespace Paroxe.PdfRenderer
     /// <summary>
     /// This class allow to access the text of a page.
     /// </summary>
-    public class PDFTextPage : IDisposable, IEquatable<PDFTextPage>
+    public sealed class PDFTextPage : IDisposable, IEquatable<PDFTextPage>, ICoordinatedNativeDisposable
     {
-        private bool m_Disposed;
-        private IntPtr m_NativePointer;
+	    private IntPtr m_NativePointer;
         private PDFPage m_Page;
-        private static Dictionary<IntPtr, int> s_InstanceMap = new Dictionary<IntPtr, int>();
 
         public PDFTextPage(PDFPage page)
         {
             if (page == null)
-                throw new NullReferenceException();
-
-            PDFLibrary.AddRef("PDFTextPage");
+                throw new ArgumentNullException("page");
 
             m_Page = page;
-            m_NativePointer = FPDFText_LoadPage(m_Page.NativePointer);
 
-            if (m_NativePointer != IntPtr.Zero)
+            PDFLibrary.Instance.DisposeCoordinator.EnsureNativeLibraryIsInitialized();
+
+            lock (PDFLibrary.nativeLock)
             {
-                if (s_InstanceMap.ContainsKey(m_NativePointer))
-                {
-                    s_InstanceMap[m_NativePointer] = s_InstanceMap[m_NativePointer] + 1;
-                }
-                else
-                    s_InstanceMap[m_NativePointer] = 1;
+	            m_NativePointer = NativeMethods.FPDFText_LoadPage(((ICoordinatedNativeDisposable)m_Page).NativePointer);
+
+                if (m_NativePointer != IntPtr.Zero)
+					PDFLibrary.Instance.DisposeCoordinator.AddReference(this);
             }
         }
 
         ~PDFTextPage()
         {
-            Dispose(false);
+	        Close();
         }
 
         public void Dispose()
         {
-            Dispose(true);
+	        Close();
+
             GC.SuppressFinalize(this);
         }
 
-        protected virtual void Dispose(bool disposing)
+        private void Close()
         {
-            if (!m_Disposed)
-            {
-                lock (PDFLibrary.nativeLock)
-                {
-                    if (m_NativePointer != IntPtr.Zero)
-                    {
-                        s_InstanceMap[m_NativePointer] = s_InstanceMap[m_NativePointer] - 1;
+	        if (m_NativePointer == IntPtr.Zero)
+		        return;
 
-                        if (s_InstanceMap[m_NativePointer] == 0)
-                        {
-							if (m_Page.NativePointer != IntPtr.Zero && m_Page.Document.NativePointer != IntPtr.Zero)
-								FPDFText_ClosePage(m_NativePointer);
-                            s_InstanceMap.Remove(m_NativePointer);
-                            m_NativePointer = IntPtr.Zero;
-                        }
-                    }
-                }
+	        PDFLibrary.Instance.DisposeCoordinator.RemoveReference(this);
 
-                PDFLibrary.RemoveRef("PDFTextPage");
-
-                m_Disposed = true;
-            }
+	        m_NativePointer = IntPtr.Zero;
         }
 
         public IntPtr NativePointer
@@ -100,13 +75,18 @@ namespace Paroxe.PdfRenderer
             get { return m_Page.PageIndex; }
         }
 
+        public PDFPageWebLinks GetPageWebLinks()
+        {
+            return new PDFPageWebLinks(this);
+        }
+
         /// <summary>
         /// Return the number of character in the page.
         /// </summary>
         /// <returns></returns>
         public int CountChars()
         {
-            return FPDFText_CountChars(m_NativePointer);
+            return NativeMethods.FPDFText_CountChars(m_NativePointer);
         }
 
         /// <summary>
@@ -117,7 +97,7 @@ namespace Paroxe.PdfRenderer
         /// <returns></returns>
         public int CountRects(int startIndex, int count)
         {
-            return FPDFText_CountRects(m_NativePointer, startIndex, count);
+            return NativeMethods.FPDFText_CountRects(m_NativePointer, startIndex, count);
         }
 
         /// <summary>
@@ -132,8 +112,9 @@ namespace Paroxe.PdfRenderer
         public string GetBoundedText(float left, float top, float right, float bottom, int charCount)
         {
             byte[] textBuffer = new byte[(charCount + 1) * 2];
-            FPDFText_GetBoundedText(m_NativePointer, left, top, right, bottom, textBuffer, textBuffer.Length);
-            return Encoding.Unicode.GetString(textBuffer);
+            NativeMethods.FPDFText_GetBoundedText(m_NativePointer, left, top, right, bottom, textBuffer, textBuffer.Length);
+
+            return PDFLibrary.Encoding.GetString(textBuffer);
         }
 
         /// <summary>
@@ -148,10 +129,10 @@ namespace Paroxe.PdfRenderer
             double bottom;
             double top;
 
-            FPDFText_GetCharBox(m_NativePointer, charIndex, out left, out right, out bottom, out top);
+            NativeMethods.FPDFText_GetCharBox(m_NativePointer, charIndex, out left, out right, out bottom, out top);
 
-            return new Rect((float) left, (float) top, Mathf.Abs((float) right - (float) left),
-                Mathf.Abs((float) bottom - (float) top));
+            return new Rect((float)left, (float)top, Mathf.Abs((float)right - (float)left),
+                Mathf.Abs((float)bottom - (float)top));
         }
 
         /// <summary>
@@ -162,10 +143,7 @@ namespace Paroxe.PdfRenderer
         /// <returns></returns>
         public int GetCharIndexAtPos(Vector2 pos, Vector2 tolerance)
         {
-            /*Vector2 pagePos = m_Page.ConvertUnityUIDevicePositionToPagePosition(pos,
-                m_Page.Document.GetPageSize(m_Page.PageIndex));*/
-
-            return FPDFText_GetCharIndexAtPos(m_NativePointer, pos.x, pos.y, tolerance.x, tolerance.y);
+	        return NativeMethods.FPDFText_GetCharIndexAtPos(m_NativePointer, pos.x, pos.y, tolerance.x, tolerance.y);
         }
 
         /// <summary>
@@ -175,7 +153,7 @@ namespace Paroxe.PdfRenderer
         /// <returns></returns>
         public double GetFontSize(int charIndex)
         {
-            return FPDFText_GetFontSize(m_NativePointer, charIndex);
+            return NativeMethods.FPDFText_GetFontSize(m_NativePointer, charIndex);
         }
 
         /// <summary>
@@ -190,10 +168,9 @@ namespace Paroxe.PdfRenderer
             double bottom;
             double top;
 
-            FPDFText_GetRect(m_NativePointer, rectIndex, out left, out top, out right, out bottom);
+            NativeMethods.FPDFText_GetRect(m_NativePointer, rectIndex, out left, out top, out right, out bottom);
 
-            return new Rect((float) left, (float) top, Mathf.Abs((float) right - (float) left),
-                Mathf.Abs((float) bottom - (float) top));
+            return new Rect((float)left, (float)top, Mathf.Abs((float)right - (float)left), Mathf.Abs((float)bottom - (float)top));
         }
 
         /// <summary>
@@ -204,9 +181,10 @@ namespace Paroxe.PdfRenderer
         /// <returns></returns>
         public string GetText(int startIndex, int count)
         {
-            byte[] textBuffer = new byte[(count + 1)*2];
-            FPDFText_GetText(m_NativePointer, startIndex, count, textBuffer);
-            return Encoding.Unicode.GetString(textBuffer);
+            byte[] textBuffer = new byte[(count + 1) * 2];
+            NativeMethods.FPDFText_GetText(m_NativePointer, startIndex, count, textBuffer);
+
+            return PDFLibrary.Encoding.GetString(textBuffer);
         }
 
         /// <summary>
@@ -216,7 +194,7 @@ namespace Paroxe.PdfRenderer
         /// <returns></returns>
         public string GetChar(int charIndex)
         {
-            return char.ConvertFromUtf32((int) FPDFText_GetUnicode(m_NativePointer, charIndex));
+            return char.ConvertFromUtf32((int) NativeMethods.FPDFText_GetUnicode(m_NativePointer, charIndex));
         }
 
         public IList<PDFSearchResult> Search(string findWhat,
@@ -225,7 +203,7 @@ namespace Paroxe.PdfRenderer
             if (string.IsNullOrEmpty(findWhat.Trim()))
                 return new List<PDFSearchResult>();
 
-            return Search(Encoding.Unicode.GetBytes(findWhat.Trim() + "\0"), flags, startIndex);
+            return Search(PDFLibrary.Encoding.GetBytes(findWhat.Trim() + "\0"), flags, startIndex);
         }
 
         public IList<PDFSearchResult> Search(byte[] findWhatUnicode,
@@ -249,49 +227,26 @@ namespace Paroxe.PdfRenderer
 
         public bool Equals(PDFTextPage other)
         {
-            return (m_NativePointer != IntPtr.Zero && m_NativePointer == other.m_NativePointer);
+	        if (other == null)
+		        return false;
+
+            return m_NativePointer != IntPtr.Zero && m_NativePointer == other.m_NativePointer;
         }
 
-#region NATIVE
+        IntPtr ICoordinatedNativeDisposable.NativePointer
+        {
+	        get { return NativePointer; }
+        }
 
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern IntPtr FPDFText_LoadPage(IntPtr page);
+        ICoordinatedNativeDisposable ICoordinatedNativeDisposable.NativeParent
+        {
+	        get { return m_Page; }
+        }
 
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void FPDFText_ClosePage(IntPtr text_page);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern int FPDFText_CountChars(IntPtr text_page);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern int FPDFText_CountRects(IntPtr text_page, int start_index, int count);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern int FPDFText_GetBoundedText(IntPtr text_page, double left, double top, double right,
-            double bottom, [In, Out] byte[] buffer, int buflen);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void FPDFText_GetCharBox(IntPtr text_page, int index, out double left, out double right,
-            out double bottom, out double top);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern int FPDFText_GetCharIndexAtPos(IntPtr text_page, double x, double y, double xTolerance,
-            double yTolerance);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern double FPDFText_GetFontSize(IntPtr text_page, int index);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void FPDFText_GetRect(IntPtr text_page, int rect_index, out double left, out double top,
-            out double right, out double bottom);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern int FPDFText_GetText(IntPtr text_page, int start_index, int count, [In, Out] byte[] buffer);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern uint FPDFText_GetUnicode(IntPtr text_page, int index);
-
-#endregion
+        Action<IntPtr> ICoordinatedNativeDisposable.GetDisposeMethod()
+        {
+	        return NativeMethods.FPDFText_ClosePage;
+        }
     }
 #endif
 }

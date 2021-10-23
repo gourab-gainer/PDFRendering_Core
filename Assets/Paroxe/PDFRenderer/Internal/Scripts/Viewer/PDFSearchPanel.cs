@@ -8,27 +8,30 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
 {
     public class PDFSearchPanel : UIBehaviour
     {
-        public Button m_CloseButton;
-        public RectTransform m_ContentPanel;
-        public InputField m_InputField;
-        public Image m_MatchCaseCheckBox;
-        public Image m_MatchWholeWordCheckBox;
-        public Button m_NextButton;
-        public Button m_PreviousButton;
-        public Text m_TotalResultText;
-        public Image m_ValidatorImage;
+        [SerializeField]
+        private RectTransform m_ContentPanel;
+	    [SerializeField]
+	    private InputField m_InputField;
+        [SerializeField]
+        private Image m_MatchCaseCheckBox;
+        [SerializeField]
+        private Image m_MatchWholeWordCheckBox;
+        [SerializeField]
+        private Text m_TotalResultText;
+        [SerializeField]
+        private Image m_ValidatorImage;
 
 #if !UNITY_WEBGL
         private float m_AnimationDuration = 0.40f;
         private float m_AnimationPosition = 1.0f;
         private int m_CurrentSearchIndex = 0;
         private PDFSearchHandle.MatchOption m_Flags = PDFSearchHandle.MatchOption.NONE;
-        private bool m_Opened = false;
-        private PDFViewer m_PDFViewer;
+        private bool m_Opened;
+        private PDFViewer m_Viewer;
         private string m_PreviousSearch;
         private PDFProgressiveSearch m_ProgressiveSearch;
-        private bool m_SearchFinished = false;
-        private int m_Total = 0;
+        private bool m_SearchFinished;
+        private int m_Total;
         private bool m_Registered;
 
         public void Close()
@@ -41,12 +44,14 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
 
                 if (m_ProgressiveSearch != null)
                     m_ProgressiveSearch.Abort();
-                m_PDFViewer.SetSearchResults(null);
+                m_Viewer.SetSearchResults(null);
 
-                if (EventSystem.current.currentSelectedGameObject == m_InputField.gameObject)
+                try
                 {
-                    EventSystem.current.SetSelectedGameObject(null, null);
+                    if (EventSystem.current.currentSelectedGameObject == m_InputField.gameObject)
+                        EventSystem.current.SetSelectedGameObject(null, null);
                 }
+                catch { }
             }
         }
 
@@ -111,17 +116,17 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
 
         public void OnNextButton()
         {
-            m_PDFViewer.GoToNextSearchResult();
+            m_Viewer.GoToNextSearchResult();
         }
 
         public void OnPreviousButton()
         {
-            m_PDFViewer.GoToPreviousSearchResult();
+            m_Viewer.GoToPreviousSearchResult();
         }
 
         public void Open()
         {
-            if (!m_Opened && m_PDFViewer.IsLoaded)
+            if (!m_Opened && m_Viewer.IsLoaded)
             {
                 m_Opened = true;
 
@@ -145,25 +150,25 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
 
             DestroyProgressiveSearch();
 
-            m_PDFViewer.OnDocumentLoaded -= OnDocumentLoaded;
-            m_PDFViewer.OnDocumentUnloaded -= OnDocumentUnloaded;
+            m_Viewer.OnDocumentLoaded -= OnDocumentLoaded;
+            m_Viewer.OnDocumentUnloaded -= OnDocumentUnloaded;
         }
 
         protected override void OnEnable()
         {
             base.OnEnable();
 
-            if (m_PDFViewer == null)
-                m_PDFViewer = GetComponentInParent<PDFViewer>();
+            if (m_Viewer == null)
+                m_Viewer = GetComponentInParent<PDFViewer>();
 
-            m_PDFViewer.OnDocumentLoaded += OnDocumentLoaded;
-            m_PDFViewer.OnDocumentUnloaded += OnDocumentUnloaded;
+            m_Viewer.OnDocumentLoaded += OnDocumentLoaded;
+            m_Viewer.OnDocumentUnloaded += OnDocumentUnloaded;
         }
 
         private void OnDocumentLoaded(PDFViewer sender, PDFDocument document)
         {
             if (m_ProgressiveSearch == null)
-                m_ProgressiveSearch = PDFProgressiveSearch.CreateSearch(m_PDFViewer.Document, sender.SearchTimeBudgetPerFrame);
+                m_ProgressiveSearch = PDFProgressiveSearch.CreateSearch(m_Viewer.Document, sender.SearchTimeBudgetPerFrame);
 
             m_ProgressiveSearch.OnSearchFinished += OnSearchFinished;
             m_ProgressiveSearch.OnProgressChanged += OnProgressChanged;
@@ -204,21 +209,21 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
         {
             m_SearchFinished = true;
 
-            m_PDFViewer.SetSearchResults(searchResults);
+            m_Viewer.SetSearchResults(searchResults);
         }
 
         void Update()
         {
-            if (!m_PDFViewer.IsLoaded)
+            if (!m_Viewer.IsLoaded)
             {
                 Close();
             }
 
             if (m_Opened)
             {
-                if (m_CurrentSearchIndex != m_PDFViewer.CurrentSearchResultIndex)
+                if (m_CurrentSearchIndex != m_Viewer.CurrentSearchResultIndex)
                 {
-                    m_CurrentSearchIndex = m_PDFViewer.CurrentSearchResultIndex;
+                    m_CurrentSearchIndex = m_Viewer.CurrentSearchResultIndex;
 
                     UpdateSearchTotal();
                 }
@@ -226,7 +231,7 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
 
             if (m_Opened && m_AnimationPosition < 1.0f)
             {
-                m_AnimationPosition = Mathf.Clamp01(m_AnimationPosition + Time.deltaTime/m_AnimationDuration);
+                m_AnimationPosition = Mathf.Clamp01(m_AnimationPosition + Time.deltaTime / m_AnimationDuration);
 
                 m_ContentPanel.anchoredPosition = Vector2.Lerp(
                     new Vector2(m_ContentPanel.anchoredPosition.x, 135.0f),
@@ -244,7 +249,7 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
             }
             else if (!m_Opened && m_AnimationPosition < 1.0f)
             {
-                m_AnimationPosition = Mathf.Clamp01(m_AnimationPosition + Time.deltaTime/m_AnimationDuration);
+                m_AnimationPosition = Mathf.Clamp01(m_AnimationPosition + Time.deltaTime / m_AnimationDuration);
 
                 m_ContentPanel.anchoredPosition = Vector2.Lerp(
                     new Vector2(m_ContentPanel.anchoredPosition.x, 135.0f),
@@ -262,7 +267,7 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
         {
             if (m_Total > 0)
             {
-                m_TotalResultText.text = (m_SearchFinished ? m_PDFViewer.CurrentSearchResultIndex + 1 : 1) + " of " + m_Total;
+                m_TotalResultText.text = (m_SearchFinished ? m_Viewer.CurrentSearchResultIndex + 1 : 1) + " of " + m_Total;
             }
             else
             {
@@ -291,7 +296,7 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                     m_TotalResultText.color.b, 1.0f);
             }
 
-            RectTransform validatorTransform = (m_ValidatorImage.transform as RectTransform);
+            RectTransform validatorTransform = (RectTransform)m_ValidatorImage.transform;
             validatorTransform.sizeDelta = new Vector2(m_TotalResultText.preferredWidth + 18.0f, validatorTransform.sizeDelta.y);
         }
 #endif

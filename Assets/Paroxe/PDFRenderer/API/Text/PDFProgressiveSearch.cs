@@ -1,17 +1,16 @@
 ﻿using System.Collections.Generic;
 using System.Diagnostics;
-using System.Text;
-
+using Paroxe.PdfRenderer.Internal;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
 namespace Paroxe.PdfRenderer
 {
 #if !UNITY_WEBGL
-    /// <summary>
-    /// Don't instantiate this class directly. Use the static method instead PDFProgressiveSearch.CreateSearch
-    /// </summary>
-    public class PDFProgressiveSearch : UIBehaviour
+	/// <summary>
+	/// Don't instantiate this class directly. Use the static method instead PDFProgressiveSearch.CreateSearch
+	/// </summary>
+	public class PDFProgressiveSearch : UIBehaviour
     {
         private bool m_AbortRequested;
         private int m_CurrentPage;
@@ -69,7 +68,8 @@ namespace Paroxe.PdfRenderer
             if (string.IsNullOrEmpty(search.Trim()))
                 m_Search = null;
             else
-                m_Search = Encoding.Unicode.GetBytes(search.Trim() + "\0");
+                m_Search = PDFLibrary.Encoding.GetBytes(search.Trim() + "\0");
+
             m_Flags = flags;
 
             m_PageCount = m_Document.GetPageCount();
@@ -123,7 +123,7 @@ namespace Paroxe.PdfRenderer
                         OnProgressChanged(this, 0);
                     }
 
-                    var handler = OnSearchFinished;
+                    SearchFinishedEventHandler handler = OnSearchFinished;
                     if (handler != null)
                     {
                         handler(this, null);
@@ -135,26 +135,29 @@ namespace Paroxe.PdfRenderer
 
                     for (int i = m_CurrentPage; i < m_PageCount; ++i)
                     {
-                        using (PDFTextPage textPage = m_Document.GetPage(i).GetTextPage())
-                        {
-                            IList<PDFSearchResult> searchResults = textPage.Search(m_Search, m_Flags);
+	                    using (PDFPage page = m_Document.GetPage(i))
+	                    {
+		                    using (PDFTextPage textPage = page.GetTextPage())
+		                    {
+			                    IList<PDFSearchResult> searchResults = textPage.Search(m_Search, m_Flags);
 
-                            m_SearchResults[i] = searchResults;
+			                    m_SearchResults[i] = searchResults;
 
-                            m_Total += searchResults.Count;
+			                    m_Total += searchResults.Count;
 
-                            ++m_CurrentPage;
+			                    ++m_CurrentPage;
 
-                            if (timer.ElapsedMilliseconds >=
-                                m_TimeBudget*1000.0f*(1.0f/Mathf.Max(Application.targetFrameRate, 1.0f/Time.deltaTime)))
-                            {
-                                if (OnProgressChanged != null)
-                                {
-                                    OnProgressChanged(this, m_Total);
-                                }
+			                    if (timer.ElapsedMilliseconds >=
+			                        m_TimeBudget * 1000.0f * (1.0f / Mathf.Max(Application.targetFrameRate, 1.0f / Time.deltaTime)))
+			                    {
+				                    if (OnProgressChanged != null)
+				                    {
+					                    OnProgressChanged(this, m_Total);
+				                    }
 
-                                break;
-                            }
+				                    break;
+			                    }
+		                    }
                         }
                     }
 
@@ -167,7 +170,7 @@ namespace Paroxe.PdfRenderer
                             OnProgressChanged(this, m_Total);
                         }
 
-                        var handler = OnSearchFinished;
+                        SearchFinishedEventHandler handler = OnSearchFinished;
                         if (handler != null)
                         {
                             handler(this, m_SearchResults);

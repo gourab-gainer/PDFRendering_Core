@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System;
 using System.Collections;
 using Paroxe.PdfRenderer;
+using Paroxe.PdfRenderer.Internal;
 
 namespace Paroxe.PdfRenderer.WebGL
 {
@@ -121,20 +122,16 @@ namespace Paroxe.PdfRenderer.WebGL
 
         public void OnLibraryInitialized(string message)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
             PDFLibrary.Instance.IsInitialized = true;
+#endif
         }
 
         public void TryTerminateRenderingWorker(string promiseHandle)
         {
 #if UNITY_WEBGL && !UNITY_EDITOR
-            PDFJS_TryTerminateRenderWorker(promiseHandle);
+            NativeMethods.PDFJS_TryTerminateRenderWorker(promiseHandle);
 #endif
         }
-
-
-#if UNITY_WEBGL && !UNITY_EDITOR
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void PDFJS_TryTerminateRenderWorker(string promiseHandle);
-#endif
     }
 }

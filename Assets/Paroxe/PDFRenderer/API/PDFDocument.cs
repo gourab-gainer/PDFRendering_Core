@@ -1,27 +1,27 @@
 ﻿using Paroxe.PdfRenderer.WebGL;
 using System;
 using System.Collections;
-#if UNITY_WINRT && !UNITY_EDITOR
-using File = UnityEngine.Windows.File;
-#else
-using File = System.IO.File;
-#endif
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
-
 using UnityEngine;
+using Paroxe.PdfRenderer.Internal;
+using System.IO;
 
 namespace Paroxe.PdfRenderer
 {
     /// <summary>
     /// Represents a PDF document. This class is the entry point of all functionalities.
     /// </summary>
-    public class PDFDocument : IDisposable
+    public sealed class PDFDocument : IDisposable, ICoordinatedNativeDisposable
     {
-        private bool m_Disposed;
-        private IntPtr m_NativePointer;
+	    private IntPtr m_NativePointer;
+        private GCHandle m_PinnedBytes;
         private byte[] m_DocumentBuffer;
         private bool m_ValidDocument;
-        private PDFRenderer m_ConvenienceRenderer;
+        private PDFRenderer m_Renderer;
+#if !UNITY_WEBGL
+        private PDFBookmark m_RootBookmark;
+#endif
 
         public static PDFJS_Promise<PDFDocument> LoadDocumentFromUrlAsync(string url)
         {
@@ -51,7 +51,8 @@ namespace Paroxe.PdfRenderer
 
             string url = urlString as string;
 
-            WWW www = new WWW(url);
+            PDFWebRequest www = new PDFWebRequest(url);
+            www.SendWebRequest();
 
             yield return www;
 
@@ -71,6 +72,9 @@ namespace Paroxe.PdfRenderer
 
                 promiseCoroutine.ExecuteThenAction(false, null);
             }
+
+            www.Dispose();
+            www = null;
         }
 #endif
 
@@ -93,20 +97,18 @@ namespace Paroxe.PdfRenderer
             return documentPromise;
         }
 
-        public PDFDocument(IntPtr nativePointer)
-        {
-            PDFLibrary.AddRef("PDFDocument");
-
-            m_NativePointer = nativePointer;
-            m_ValidDocument = true;
-        }
+		public PDFDocument(IntPtr nativePointer)
+		{
+			m_NativePointer = nativePointer;
+			m_ValidDocument = true;
+		}
 
 #if !UNITY_WEBGL || UNITY_EDITOR
-        /// <summary>
-        /// Open PDF Document with the specified byte array.
-        /// </summary>
-        /// <param name="buffer"></param>
-        public PDFDocument(byte[] buffer)
+		/// <summary>
+		/// Open PDF Document with the specified byte array.
+		/// </summary>
+		/// <param name="buffer"></param>
+		public PDFDocument(byte[] buffer)
             : this(buffer, "")
         { }
 
@@ -117,9 +119,7 @@ namespace Paroxe.PdfRenderer
         /// <param name="password">Can be null or empty</param>
         public PDFDocument(byte[] buffer, string password)
         {
-            PDFLibrary.AddRef("PDFDocument");
-
-            CommonInit(buffer, password);
+	        CommonInit(buffer, password);
         }
 
         /// <summary>
@@ -137,50 +137,44 @@ namespace Paroxe.PdfRenderer
         /// <param name="password">Can be null or empty</param>
         public PDFDocument(string filePath, string password)
         {
-            PDFLibrary.AddRef("PDFDocument");
+	        CommonInit(File.ReadAllBytes(filePath), password);
+        }
 
-#if !UNITY_WEBPLAYER
-            CommonInit(File.ReadAllBytes(filePath), password);
+#endif
+	    ~PDFDocument()
+        {
+	        Close();
+        }
+
+	    public void Dispose()
+	    {
+		    Close();
+
+		    GC.SuppressFinalize(this);
+	    }
+
+        private void Close()
+        {
+	        if (m_NativePointer == IntPtr.Zero && m_DocumentBuffer == null)
+		        return;
+
+	        if (m_NativePointer != IntPtr.Zero)
+	        {
+#if !UNITY_WEBGL || UNITY_EDITOR
+                PDFLibrary.Instance.DisposeCoordinator.RemoveReference(this);
 #else
-            m_ValidDocument = false;
-#endif
-        }
-
+				NativeMethods.PDFJS_CloseDocument(m_NativePointer.ToInt32());
 #endif
 
-        ~PDFDocument()
-        {
-            Dispose(false);
-        }
+                m_NativePointer = IntPtr.Zero;
+	        }
 
-        protected virtual void Dispose(bool disposing)
-        {
+	        if (m_DocumentBuffer != null)
+	        {
+		        m_PinnedBytes.Free();
 
-            if (!m_Disposed)
-            {
-                lock (PDFLibrary.nativeLock)
-                {
-                    if (m_NativePointer != IntPtr.Zero)
-                    {
-#if UNITY_WEBGL && !UNITY_EDITOR
-                        PDFJS_CloseDocument(m_NativePointer.ToInt32());
-#else
-                        FPDF_CloseDocument(m_NativePointer);
-#endif
-                        m_NativePointer = IntPtr.Zero;
-                    }
-                }
-
-                PDFLibrary.RemoveRef("PDFDocument");
-
-                m_Disposed = true;
-            }
-        }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
+		        m_DocumentBuffer = null;
+	        }
         }
 
         /// <summary>
@@ -190,9 +184,9 @@ namespace Paroxe.PdfRenderer
         {
             get
             {
-                if (m_ConvenienceRenderer == null)
-                    m_ConvenienceRenderer = new PDFRenderer();
-                return m_ConvenienceRenderer;
+                if (m_Renderer == null)
+                    m_Renderer = new PDFRenderer();
+                return m_Renderer;
             }
         }
 
@@ -218,12 +212,12 @@ namespace Paroxe.PdfRenderer
             get { return m_NativePointer; }
         }
 
-        public int GetPageCount()
+		public int GetPageCount()
         {
 #if UNITY_WEBGL && !UNITY_EDITOR
-            return PDFJS_GetPageCount(m_NativePointer.ToInt32());
+            return NativeMethods.PDFJS_GetPageCount(m_NativePointer.ToInt32());
 #else
-            return FPDF_GetPageCount(m_NativePointer);
+            return NativeMethods.FPDF_GetPageCount(m_NativePointer);
 #endif
         }
 
@@ -233,9 +227,9 @@ namespace Paroxe.PdfRenderer
             double width;
             double height;
 
-            FPDF_GetPageSizeByIndex(m_NativePointer, pageIndex, out width, out height);
+            NativeMethods.FPDF_GetPageSizeByIndex(m_NativePointer, pageIndex, out width, out height);
 
-            return new Vector2((float) width, (float) height);
+            return new Vector2((float)width, (float)height);
         }
 #endif
 
@@ -245,9 +239,9 @@ namespace Paroxe.PdfRenderer
             double width;
             double height;
 
-            FPDF_GetPageSizeByIndex(m_NativePointer, pageIndex, out width, out height);
-            
-            return (int) width;
+            NativeMethods.FPDF_GetPageSizeByIndex(m_NativePointer, pageIndex, out width, out height);
+
+            return (int)width;
         }
 #endif
 
@@ -257,39 +251,29 @@ namespace Paroxe.PdfRenderer
             double width;
             double height;
 
-            FPDF_GetPageSizeByIndex(m_NativePointer, pageIndex, out width, out height);
+            NativeMethods.FPDF_GetPageSizeByIndex(m_NativePointer, pageIndex, out width, out height);
 
-            return (int) height;
+            return (int)height;
         }
 #endif
 
 #if !UNITY_WEBGL
-        /// <summary>
-        /// Return the root bookmark of the document.
-        /// </summary>
-        /// <returns></returns>
+	    /// <summary>
+	    /// Return the root bookmark of the document.
+	    /// </summary>
+	    /// <returns></returns>
         public PDFBookmark GetRootBookmark()
         {
-            return GetRootBookmark(null);
-        }
-#endif
-
-#if !UNITY_WEBGL
-        /// <summary>
-        /// Return the root bookmark of the document.
-        /// </summary>
-        /// <param name="device">Pass the device that will receive bookmarks action</param>
-        /// <returns></returns>
-        public PDFBookmark GetRootBookmark(IPDFDevice device)
-        {
-            return new PDFBookmark(this, null, IntPtr.Zero, device);
+            if (m_RootBookmark == null)
+	            m_RootBookmark = new PDFBookmark(this, null, IntPtr.Zero);
+            return m_RootBookmark;
         }
 #endif
 
 #if !UNITY_WEBGL || UNITY_EDITOR
         public PDFPage GetPage(int index)
         {
-            return new PDFPage(this, index);
+	        return new PDFPage(this, index);
         }
 #endif
 
@@ -305,7 +289,15 @@ namespace Paroxe.PdfRenderer
             if (m_DocumentBuffer != null)
             {
 #if !UNITY_WEBGL || UNITY_EDITOR
-                m_NativePointer = FPDF_LoadMemDocument(m_DocumentBuffer, m_DocumentBuffer.Length, password);
+
+	            PDFLibrary.Instance.DisposeCoordinator.EnsureNativeLibraryIsInitialized();
+
+                m_PinnedBytes = GCHandle.Alloc(m_DocumentBuffer, GCHandleType.Pinned);
+
+                m_NativePointer = NativeMethods.FPDF_LoadMemDocument(m_PinnedBytes.AddrOfPinnedObject(), m_DocumentBuffer.Length, password);
+
+                if (m_NativePointer != IntPtr.Zero)
+					PDFLibrary.Instance.DisposeCoordinator.AddReference(this);
 #endif
 
                 m_ValidDocument = (m_NativePointer != IntPtr.Zero);
@@ -314,6 +306,25 @@ namespace Paroxe.PdfRenderer
             {
                 m_ValidDocument = false;
             }
+        }
+
+        IntPtr ICoordinatedNativeDisposable.NativePointer
+        {
+	        get { return m_NativePointer; }
+        }
+
+        ICoordinatedNativeDisposable ICoordinatedNativeDisposable.NativeParent
+        {
+	        get { return null; }
+        }
+
+        Action<IntPtr> ICoordinatedNativeDisposable.GetDisposeMethod()
+		{
+#if !UNITY_WEBGL || UNITY_EDITOR
+            return NativeMethods.FPDF_CloseDocument;
+#else
+			return null;
+#endif
         }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -334,9 +345,9 @@ namespace Paroxe.PdfRenderer
             LoadDocumentParameters parameters = pars as LoadDocumentParameters;
 
             if (!string.IsNullOrEmpty(parameters.url))
-                PDFJS_LoadDocumentFromURL(promise.PromiseHandle, parameters.url);
+                NativeMethods.PDFJS_LoadDocumentFromURL(promise.PromiseHandle, parameters.url);
             else
-                PDFJS_LoadDocumentFromBytes(promise.PromiseHandle, Convert.ToBase64String(parameters.bytes));
+                NativeMethods.PDFJS_LoadDocumentFromBytes(promise.PromiseHandle, Convert.ToBase64String(parameters.bytes));
 
             while (!promiseCoroutine.Promise.HasReceivedJSResponse)
                 yield return null;
@@ -360,38 +371,5 @@ namespace Paroxe.PdfRenderer
             }
         }
 #endif
-
-        #region NATIVE
-
-#if !UNITY_WEBGL || UNITY_EDITOR
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void FPDF_CloseDocument(IntPtr document);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern uint FPDF_GetDocPermissions(IntPtr document);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern int FPDF_GetPageCount(IntPtr document);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY, CharSet = CharSet.Ansi)]
-        private static extern IntPtr FPDF_LoadMemDocument(byte[] data_buf, int size, string password);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern int FPDF_GetPageSizeByIndex(IntPtr document, int page_index, out double width, out double height);
-#else
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void PDFJS_LoadDocumentFromURL(string promiseHandle, string documentUrl);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void PDFJS_LoadDocumentFromBytes(string promiseHandle, string base64);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void PDFJS_CloseDocument(int document);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern int PDFJS_GetPageCount(int documentHandle);
-#endif
-
-#endregion
-    }
+	}
 }

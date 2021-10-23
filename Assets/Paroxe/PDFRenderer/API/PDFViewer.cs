@@ -1,24 +1,14 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
-#if UNITY_WINRT && !UNITY_EDITOR
-using File = UnityEngine.Windows.File;
-#else
-using File = System.IO.File;
-using System.IO;
-#endif
 using System.Reflection;
-using System.Runtime.InteropServices;
 using Paroxe.PdfRenderer.Internal;
 using Paroxe.PdfRenderer.Internal.Viewer;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using Paroxe.PdfRenderer.WebGL;
-
-#if NETFX_CORE && !UNITY_WSA_10_0
-using WinRTLegacy;
-#endif
+using System.IO;
 
 namespace Paroxe.PdfRenderer
 {
@@ -27,14 +17,17 @@ namespace Paroxe.PdfRenderer
     /// </summary>
     public class PDFViewer : UIBehaviour, IPDFDevice, IPDFColoredRectListProvider
     {
-        [SerializeField] public PDFViewerInternal m_Internal;
+        [SerializeField]
+        public PDFViewerInternal m_Internal;
 
         private IPDFDeviceActionHandler m_BookmarksActionHandler;
         private IPDFDeviceActionHandler m_LinksActionHandler;
         private PDFPageRange m_CurrentPageRange;
         private PDFSearchResult m_CurrentSearchResult;
         private PDFDocument m_Document;
+#pragma warning disable 414
         private PDFDocument m_SuppliedDocument;
+#pragma warning restore 414
         private PDFPageTextureHolder[] m_PageTextureHolders;
         private int m_CurrentSearchResultIndex;
         private int m_CurrentSearchResultIndexWithinCurrentPage;
@@ -42,18 +35,18 @@ namespace Paroxe.PdfRenderer
         private float m_InvalidPasswordMessageDelay;
 #if !UNITY_WEBGL || UNITY_EDITOR
         private float m_InvalidPasswordMessageDelayBeforeFade = 0.5f;
+        private bool m_DownloadCanceled = false;
 #endif
         private bool m_InvalidPasswordMessageVisisble;
         private bool m_IsLoaded;
         private int m_LoadAtPageIndex;
-        private float m_OverlayAlpha = 0.50f;
-        private bool m_OverlayVisible;
+        private float OverlayAlpha = 0.50f;
+        private bool OverlayVisible;
         private int m_PageCount;
         private float[] m_PageOffsets;
         private Vector2[] m_PageSizes;
         private Vector2[] m_NormalPageSizes;
         private byte[] m_PendingDocumentBuffer;
-        public int CurrentPage { get => m_PreviousMostVisiblePage +1;  }
         private int m_PreviousMostVisiblePage = -1;
         private PageFittingType m_PreviousPageFitting;
         private float m_PreviousZoom;
@@ -61,53 +54,96 @@ namespace Paroxe.PdfRenderer
         private IList<PDFSearchResult>[] m_SearchResults;
         private float m_StartZoom;
         private float m_UpdateChangeDelay;
-#if !UNITY_WEBGL || UNITY_EDITOR
-        private WWW m_WWW;
-#endif
         private Vector2 m_ZoomPosition = Vector2.zero;
         private PDFRenderer m_Renderer;
+        private int m_PreviousTouchCount;
+        private float m_PinchZoomStartZoomFactor;
+        private float m_PinchZoomStartDeltaMag;
+        private Canvas m_Canvas;
+        private GraphicRaycaster m_GraphicRaycaster;
+        private List<Canvas> m_CanvasList = new List<Canvas>();
+        private ScrollRect m_ViewportScrollRect;
+        private Scrollbar m_HorizontalScrollBar;
+        private Scrollbar m_VerticalScrollBar;
+        private int? m_LastSetLabelPageIndex;
+        private int? m_LastSetLabelPageCount;
 
         /// ...
         private PDFThumbnailsViewer m_ThumbnailsViewer;
         private PDFBookmarksViewer m_BookmarksViewer;
 
-        [SerializeField] private bool m_AllowOpenURL = true;
-        [SerializeField] private Component m_BytesSupplierComponent;
-        [SerializeField] private string m_BytesSupplierFunctionName;
-        [SerializeField] private GameObject m_BytesSupplierObject;
-        [SerializeField] private string m_FileName = "";
-        [SerializeField] private string m_FilePath = "";
-        [SerializeField] private FileSourceType m_FileSource = FileSourceType.Resources;
-        [SerializeField] private string m_FileURL = "";
-        [SerializeField] private string m_Folder = "";
-        [SerializeField] private bool m_LoadOnEnable = true;
-        [SerializeField] private float m_MaxZoomFactor = 8.0f;
-        [SerializeField] private float m_MaxZoomFactorTextureQuality = 4.0f;
-        [SerializeField] private float m_MinZoomFactor = 0.25f;
-        [SerializeField] private PageFittingType m_PageFitting = PageFittingType.Zoom;
-        [SerializeField] private string m_Password = "";
-        [SerializeField] private PDFAsset m_PDFAsset = null;
-        [SerializeField] private float m_ZoomFactor = 1.0f;
-        [SerializeField] private float m_ZoomStep = 0.25f;
-        [SerializeField] private float m_ZoomToGo;
-        [SerializeField] private float m_VerticalMarginBetweenPages = 20.0f;
-        [SerializeField] private bool m_UnloadOnDisable;
-        [SerializeField] private bool m_ShowVerticalScrollBar = false;
-        [SerializeField] private bool m_ShowBookmarksViewer = true;
-        [SerializeField] private bool m_ShowHorizontalScrollBar = true;
-        [SerializeField] private bool m_ShowThumbnailsViewer = true;
-        [SerializeField] private bool m_ShowTopBar = false;
-        [SerializeField] private float m_ScrollSensitivity = 75.0f;
-        [SerializeField] private Color m_SearchResultColor = new Color(0.0f, 115 / 255.0f, 230 / 255.0f, 125 / 255.0f);
-        [SerializeField] private Vector2 m_SearchResultPadding = new Vector2(2.0f, 4.0f);
-        [SerializeField] private float m_SearchTimeBudgetPerFrame = 0.60f;
-        [SerializeField] private PDFRenderer.RenderSettings m_RenderSettings = new PDFRenderer.RenderSettings();
-        [SerializeField] private float m_DelayAfterZoomingBeforeUpdate = 0.005f;
-        [SerializeField] private float m_ParagraphZoomFactor = 2.0f;
-        [SerializeField] private bool m_ParagraphZoomingEnable = true;
-        [SerializeField] private float m_ParagraphDetectionThreshold = 12.0f;
-        [SerializeField] private Texture2D m_PageTileTexture;
-        [SerializeField] private Color m_PageColor = Color.white;
+        [SerializeField]
+        private bool m_AllowOpenURL = true;
+        [SerializeField]
+        private bool m_ChangeCursorWhenOverURL = true;
+        [SerializeField]
+        private GameObject m_BytesSupplierObject;
+        [SerializeField]
+        private Component m_BytesSupplierComponent;
+        [SerializeField]
+        private string m_BytesSupplierFunctionName;
+        [SerializeField]
+        private string m_FileName = "";
+        [SerializeField]
+        private string m_FilePath = "";
+        [SerializeField]
+        private FileSourceType m_FileSource = FileSourceType.Resources;
+        [SerializeField]
+        private string m_FileURL = "";
+        [SerializeField]
+        private string m_Folder = "";
+        [SerializeField]
+        private bool m_LoadOnEnable = true;
+        [SerializeField]
+        private float m_MaxZoomFactor = 8.0f;
+        [SerializeField]
+        private float m_MaxZoomFactorTextureQuality = 4.0f;
+        [SerializeField]
+        private float m_MinZoomFactor = 0.25f;
+        [SerializeField]
+        private PageFittingType m_PageFitting = PageFittingType.Zoom;
+        [SerializeField]
+        private string m_Password = "";
+        [SerializeField]
+        private PDFAsset m_PDFAsset = null;
+        [SerializeField]
+        private float m_ZoomFactor = 1.0f;
+        [SerializeField]
+        private float m_ZoomStep = 0.25f;
+        [SerializeField]
+        private float m_ZoomToGo;
+        [SerializeField]
+        private float m_VerticalMarginBetweenPages = 20.0f;
+        [SerializeField]
+        private bool m_UnloadOnDisable;
+        [SerializeField]
+        private bool m_ShowVerticalScrollBar = false;
+        [SerializeField]
+        private bool m_ShowBookmarksViewer = true;
+        [SerializeField]
+        private bool m_ShowHorizontalScrollBar = true;
+        [SerializeField]
+        private bool m_ShowThumbnailsViewer = true;
+        [SerializeField]
+        private bool m_ShowTopBar = false;
+        [SerializeField]
+        private float m_ScrollSensitivity = 75.0f;
+        [SerializeField]
+        private Color m_SearchResultColor = new Color(0.0f, 115 / 255.0f, 230 / 255.0f, 125 / 255.0f);
+        [SerializeField]
+        private Vector2 m_SearchResultPadding = new Vector2(2.0f, 4.0f);
+        [SerializeField, Range(0.0f, 1.0f)]
+        private float m_SearchTimeBudgetPerFrame = 0.60f;
+        [SerializeField]
+        private PDFRenderer.RenderSettings m_RenderSettings = new PDFRenderer.RenderSettings();
+        [SerializeField]
+        private float m_DelayAfterZoomingBeforeUpdate = 0.005f;
+        [SerializeField]
+        private float m_ParagraphZoomFactor = 2.0f;
+        [SerializeField]
+        private bool m_ParagraphZoomingEnable = true;
+        [SerializeField]
+        private float m_ParagraphDetectionThreshold = 12.0f;
 
         public delegate void CancelEventHandler(PDFViewer sender);
         public delegate void CurrentPageChangedEventHandler(PDFViewer sender, int oldPageIndex, int newPageIndex);
@@ -153,6 +189,18 @@ namespace Paroxe.PdfRenderer
             ZoomIn
         }
 
+        /// <summary>
+        /// Return parent canvas.
+        /// </summary>
+        public Canvas canvas
+        {
+            get
+            {
+                if (m_Canvas == null)
+                    CacheCanvas();
+                return m_Canvas;
+            }
+        }
 
         /// <summary>
         /// Specify if the PDFViewer can open url link with external browser.
@@ -164,17 +212,24 @@ namespace Paroxe.PdfRenderer
         }
 
         /// <summary>
+        /// Specify if the cursor change when over url links.
+        /// </summary>
+        public bool ChangeCursorWhenOverURL
+        {
+            get { return m_ChangeCursorWhenOverURL; }
+            set { m_ChangeCursorWhenOverURL = value; }
+        }
+
+        /// <summary>
         /// Specify the viewport background color.
         /// </summary>
         public Color BackgroundColor
         {
-            get { return m_Internal.m_Viewport.GetComponent<Image>().color; }
+            get { return m_Internal.Viewport.GetComponent<Image>().color; }
             set
             {
-                if (m_Internal.m_Viewport.GetComponent<Image>().color != value)
-                {
-                    m_Internal.m_Viewport.GetComponent<Image>().color = value;
-                }
+                if (m_Internal.Viewport.GetComponent<Image>().color != value)
+                    m_Internal.Viewport.GetComponent<Image>().color = value;
             }
         }
 
@@ -225,26 +280,15 @@ namespace Paroxe.PdfRenderer
             set { m_BytesSupplierFunctionName = value; }
         }
 
-        /// <summary>
-        /// This property is intended to be used along side with the bytes file source. (FileSource.Bytes)
-        /// Specify the object in which the bytes suppliers component resides.
-        /// </summary>
-        public GameObject BytesSupplierObject
-        {
-            get { return m_BytesSupplierObject; }
-            set { m_BytesSupplierObject = value; }
-        }
-
         public int CurrentPageIndex
         {
             get { return GetMostVisiblePageIndex(); }
             set
             {
                 int mostVisible = GetMostVisiblePageIndex();
+
                 if (value != mostVisible)
-                {
                     GoToPage(value);
-                }
             }
         }
 
@@ -261,9 +305,7 @@ namespace Paroxe.PdfRenderer
             get
             {
                 if (Document != null)
-                {
                     return m_Document.DocumentBuffer;
-                }
                 return null;
             }
         }
@@ -315,19 +357,12 @@ namespace Paroxe.PdfRenderer
             set { m_LoadOnEnable = value; }
         }
 
-        public float MaxZoomFactor
-        {
-            get { return m_MaxZoomFactor; }
-            set { m_MaxZoomFactor = value; }
-        }
-
         public float MaxZoomFactorTextureQuality
         {
             get { return m_MaxZoomFactorTextureQuality; }
             set
             {
-                if (Math.Abs(Mathf.Clamp(value, MinZoomFactor, MaxZoomFactor) - m_MaxZoomFactorTextureQuality) >
-                    float.Epsilon)
+                if (Math.Abs(Mathf.Clamp(value, MinZoomFactor, MaxZoomFactor) - m_MaxZoomFactorTextureQuality) > float.Epsilon)
                 {
                     m_MaxZoomFactorTextureQuality = Mathf.Clamp(value, MinZoomFactor, MaxZoomFactor);
 
@@ -339,7 +374,25 @@ namespace Paroxe.PdfRenderer
         public float MinZoomFactor
         {
             get { return m_MinZoomFactor; }
-            set { m_MinZoomFactor = value; }
+            set
+            {
+                m_MinZoomFactor = value;
+
+                if (m_MinZoomFactor < 0.01f)
+                    m_MinZoomFactor = 0.01f;
+            }
+        }
+
+        public float MaxZoomFactor
+        {
+            get { return m_MaxZoomFactor; }
+            set
+            {
+                m_MaxZoomFactor = value;
+
+                if (m_MaxZoomFactor < m_MinZoomFactor)
+                    m_MaxZoomFactor = m_MinZoomFactor;
+            }
         }
 
         public PageFittingType PageFitting
@@ -430,32 +483,38 @@ namespace Paroxe.PdfRenderer
             get { return m_ShowBookmarksViewer; }
             set
             {
-                m_ShowBookmarksViewer = value;
-
-                bool visible = m_ShowBookmarksViewer;
-
-                if (m_IsLoaded)
+                if (m_ShowBookmarksViewer != value)
                 {
+                    m_ShowBookmarksViewer = value;
+
+                    UpdateBookmarksViewerVisibility(m_ShowBookmarksViewer);
+                }
+            }
+        }
+
+        private void UpdateBookmarksViewerVisibility(bool visible)
+        {
+            if (visible && m_IsLoaded)
+            {
 #if !UNITY_WEBGL
-                    if (m_Document.GetRootBookmark().ChildCount == 0)
+                if (m_BookmarksViewer.RootBookmark == null || m_BookmarksViewer.RootBookmark.ChildCount == 0)
 #endif
-                        visible = false;
-                }
+                    visible = false;
+            }
 
-                if (m_Internal.m_LeftPanel != null)
-                {
-                    m_Internal.m_LeftPanel.m_Bookmarks.gameObject.SetActive(visible);
-                    m_Internal.m_LeftPanel.m_BookmarksTab.gameObject.SetActive(visible);
+            if (m_Internal.LeftPanel != null)
+            {
+                m_Internal.LeftPanel.Bookmarks.gameObject.SetActive(visible);
+                m_Internal.LeftPanel.BookmarksTab.gameObject.SetActive(visible);
 
-                    m_Internal.m_LeftPanel.SetActive(m_ShowThumbnailsViewer || visible);
+                m_Internal.LeftPanel.SetActive(m_ShowThumbnailsViewer || visible);
 
-                    if (!visible && m_ShowThumbnailsViewer)
-                        m_Internal.m_LeftPanel.OnThumbnailsTabClicked();
-                    else if (visible && !m_ShowThumbnailsViewer)
-                        m_Internal.m_LeftPanel.OnBookmarksTabClicked();
-                    else
-                        m_Internal.m_LeftPanel.OnBookmarksTabClicked();
-                }
+                if (!visible && m_ShowThumbnailsViewer)
+                    m_Internal.LeftPanel.OnThumbnailsTabClicked();
+                else if (visible && !m_ShowThumbnailsViewer)
+                    m_Internal.LeftPanel.OnBookmarksTabClicked();
+                else
+                    m_Internal.LeftPanel.OnBookmarksTabClicked();
             }
         }
 
@@ -483,19 +542,19 @@ namespace Paroxe.PdfRenderer
                 {
                     m_ShowThumbnailsViewer = value;
 
-                    if (m_Internal.m_LeftPanel != null)
+                    if (m_Internal.LeftPanel != null)
                     {
-                        m_Internal.m_LeftPanel.m_ThumbnailsViewer.gameObject.SetActive(m_ShowThumbnailsViewer);
-                        m_Internal.m_LeftPanel.m_ThumbnailsTab.gameObject.SetActive(m_ShowThumbnailsViewer);
+                        m_Internal.LeftPanel.ThumbnailsViewer.gameObject.SetActive(m_ShowThumbnailsViewer);
+                        m_Internal.LeftPanel.ThumbnailsTab.gameObject.SetActive(m_ShowThumbnailsViewer);
 
-                        m_Internal.m_LeftPanel.SetActive(m_ShowThumbnailsViewer || m_ShowBookmarksViewer);
+                        m_Internal.LeftPanel.SetActive(m_ShowThumbnailsViewer || m_Internal.LeftPanel.Bookmarks.gameObject.activeSelf);
 
-                        if (!m_ShowBookmarksViewer && m_ShowThumbnailsViewer)
-                            m_Internal.m_LeftPanel.OnThumbnailsTabClicked();
-                        else if (m_ShowBookmarksViewer && !m_ShowThumbnailsViewer)
-                            m_Internal.m_LeftPanel.OnBookmarksTabClicked();
+                        if (!m_Internal.LeftPanel.Bookmarks.gameObject.activeSelf && m_ShowThumbnailsViewer)
+                            m_Internal.LeftPanel.OnThumbnailsTabClicked();
+                        else if (m_Internal.LeftPanel.Bookmarks.gameObject.activeSelf && !m_ShowThumbnailsViewer)
+                            m_Internal.LeftPanel.OnBookmarksTabClicked();
                         else
-                            m_Internal.m_LeftPanel.OnBookmarksTabClicked();
+                            m_Internal.LeftPanel.OnBookmarksTabClicked();
                     }
                 }
             }
@@ -512,32 +571,32 @@ namespace Paroxe.PdfRenderer
 
                     if (!m_ShowTopBar)
                     {
-                        m_Internal.m_TopPanel.gameObject.SetActive(false);
-                        m_Internal.m_TopPanel.sizeDelta = new Vector2(0.0f, 0.0f);
+                        m_Internal.TopPanel.gameObject.SetActive(false);
+                        m_Internal.TopPanel.sizeDelta = new Vector2(0.0f, 0.0f);
 
-                        m_Internal.m_Viewport.offsetMax = new Vector2(m_Internal.m_Viewport.offsetMax.x, 0.0f);
-                        m_Internal.m_VerticalScrollBar.offsetMax =
-                            new Vector2(m_Internal.m_VerticalScrollBar.offsetMax.x, 0.0f);
+                        m_Internal.Viewport.offsetMax = new Vector2(m_Internal.Viewport.offsetMax.x, 0.0f);
+                        m_Internal.VerticalScrollBar.offsetMax =
+                            new Vector2(m_Internal.VerticalScrollBar.offsetMax.x, 0.0f);
 
-                        if (m_Internal.m_LeftPanel != null)
+                        if (m_Internal.LeftPanel != null)
                         {
-                            (m_Internal.m_LeftPanel.transform as RectTransform).sizeDelta =
-                                new Vector2((m_Internal.m_LeftPanel.transform as RectTransform).sizeDelta.x, 0.0f);
+                            ((RectTransform)m_Internal.LeftPanel.transform).sizeDelta =
+                                new Vector2(((RectTransform)m_Internal.LeftPanel.transform).sizeDelta.x, 0.0f);
                         }
                     }
                     else
                     {
-                        m_Internal.m_TopPanel.gameObject.SetActive(true);
-                        m_Internal.m_TopPanel.sizeDelta = new Vector2(0.0f, 60.0f);
+                        m_Internal.TopPanel.gameObject.SetActive(true);
+                        m_Internal.TopPanel.sizeDelta = new Vector2(0.0f, 60.0f);
 
-                        m_Internal.m_Viewport.offsetMax = new Vector2(m_Internal.m_Viewport.offsetMax.x, -60.0f);
-                        m_Internal.m_VerticalScrollBar.offsetMax =
-                            new Vector2(m_Internal.m_VerticalScrollBar.offsetMax.x, -59.0f);
+                        m_Internal.Viewport.offsetMax = new Vector2(m_Internal.Viewport.offsetMax.x, -60.0f);
+                        m_Internal.VerticalScrollBar.offsetMax =
+                            new Vector2(m_Internal.VerticalScrollBar.offsetMax.x, -59.0f);
 
-                        if (m_Internal.m_LeftPanel != null)
+                        if (m_Internal.LeftPanel != null)
                         {
-                            (m_Internal.m_LeftPanel.transform as RectTransform).sizeDelta =
-                                new Vector2((m_Internal.m_LeftPanel.transform as RectTransform).sizeDelta.x, -59.0f);
+                            ((RectTransform)m_Internal.LeftPanel.transform).sizeDelta =
+                                new Vector2(((RectTransform)m_Internal.LeftPanel.transform).sizeDelta.x, -59.0f);
                         }
                     }
                 }
@@ -555,7 +614,6 @@ namespace Paroxe.PdfRenderer
 
                     UpdateScrollBarVisibility();
                 }
-
             }
         }
 
@@ -581,10 +639,13 @@ namespace Paroxe.PdfRenderer
                         m_VerticalMarginBetweenPages = value;
                     }
 
-                    ComputePageOffsets();
-                    UpdatePagesPlacement();
-                    m_Internal.m_PageContainer.sizeDelta = GetDocumentSize();
-                    EnsureValidPageContainerPosition();
+                    if (m_IsLoaded)
+                    {
+                        ComputePageOffsets();
+                        UpdatePagesPlacement();
+                        m_Internal.PageContainer.sizeDelta = GetDocumentSize();
+                        EnsureValidPageContainerPosition();
+                    }
                 }
             }
         }
@@ -598,7 +659,7 @@ namespace Paroxe.PdfRenderer
                 {
                     m_ZoomToGo = Mathf.Clamp(value, MinZoomFactor, MaxZoomFactor);
 
-                    m_ZoomPosition = new Vector2(0.0f, m_Internal.m_Viewport.rect.size.y * 0.5f);
+                    m_ZoomPosition = new Vector2(0.0f, m_Internal.Viewport.rect.size.y * 0.5f);
 
                     NotifyZoomChanged(m_PreviousZoomToGo, m_ZoomToGo);
 
@@ -615,15 +676,8 @@ namespace Paroxe.PdfRenderer
 
         public bool ParagraphZoomingEnable
         {
-            get
-            {
-                return m_ParagraphZoomingEnable;
-            }
-
-            set
-            {
-                m_ParagraphZoomingEnable = value;
-            }
+            get { return m_ParagraphZoomingEnable; }
+            set { m_ParagraphZoomingEnable = value; }
         }
 
         public float ParagraphZoomFactor
@@ -638,80 +692,233 @@ namespace Paroxe.PdfRenderer
             set { m_ParagraphDetectionThreshold = value; }
         }
 
-        public Texture2D PageTileTexture
+        public void LoadDocument(int pageIndex = 0)
         {
-            get
-            {
-                return m_PageTileTexture;
-            }
+            if (m_IsLoaded)
+                CleanUp();
 
-            set
-            {
-                m_PageTileTexture = value;
-            }
+            CommonLoad();
         }
 
-        public Color PageColor
+        public void LoadDocument(PDFDocument document, int pageIndex = 0)
         {
-            get
-            {
-                return m_PageColor;
-            }
-
-            set
-            {
-                m_PageColor = value;
-            }
+            LoadDocument(document, null, pageIndex);
         }
 
-        
+        public void LoadDocument(PDFDocument document, string password, int pageIndex = 0)
+        {
+            m_LoadAtPageIndex = pageIndex;
+
+            if (m_IsLoaded)
+                CleanUp();
+
+            m_FileSource = FileSourceType.DocumentObject;
+
+            m_SuppliedDocument = document;
+            m_Password = password;
+
+            CommonLoad();
+        }
+
+        public void LoadDocumentFromAsset(PDFAsset pdfAsset, int pageIndex = 0)
+        {
+            LoadDocumentFromAsset(pdfAsset, null, pageIndex);
+        }
+
+        public void LoadDocumentFromAsset(PDFAsset pdfAsset, string password, int pageIndex = 0)
+        {
+            m_LoadAtPageIndex = pageIndex;
+
+            if (m_IsLoaded)
+            {
+                CleanUp();
+            }
+
+            m_FileSource = FileSourceType.Asset;
+
+            m_PDFAsset = pdfAsset;
+            m_Password = password;
+
+            CommonLoad(pdfAsset.m_FileContent);
+        }
+
+        public void LoadDocumentFromResources(string folder, string fileName, int pageIndex = 0)
+        {
+            LoadDocumentFromResources(folder, fileName, null, pageIndex);
+        }
+
+        public void LoadDocumentFromResources(string folder, string fileName, string password, int pageIndex = 0)
+        {
+            m_LoadAtPageIndex = pageIndex;
+
+            if (m_IsLoaded)
+                CleanUp();
+
+            m_FileSource = FileSourceType.Resources;
+
+            m_Folder = folder;
+            m_FileName = fileName;
+            m_FilePath = GetFileLocation();
+
+            m_Password = password;
+
+            CommonLoad();
+        }
+
+        public void LoadDocumentFromStreamingAssets(string folder, string fileName, int pageIndex = 0)
+        {
+            LoadDocumentFromStreamingAssets(folder, fileName, null, pageIndex);
+        }
+
+        public void LoadDocumentFromStreamingAssets(string folder, string fileName, string password, int pageIndex = 0)
+        {
+            m_LoadAtPageIndex = pageIndex;
+
+            if (m_IsLoaded)
+                CleanUp();
+
+            m_FileSource = FileSourceType.StreamingAssets;
+
+            m_Folder = folder;
+            m_FileName = fileName;
+            m_FilePath = GetFileLocation();
+
+            m_Password = password;
+
+            CommonLoad();
+        }
+
+        public void LoadDocumentFromPersistentData(string folder, string fileName, int pageIndex = 0)
+        {
+            LoadDocumentFromPersistentData(folder, fileName, null, pageIndex);
+        }
+
+        public void LoadDocumentFromPersistentData(string folder, string fileName, string password, int pageIndex = 0)
+        {
+            m_LoadAtPageIndex = pageIndex;
+
+            if (m_IsLoaded)
+                CleanUp();
+
+            m_FileSource = FileSourceType.PersistentData;
+
+            m_Folder = folder;
+            m_FileName = fileName;
+            m_FilePath = GetFileLocation();
+
+            m_Password = password;
+
+            CommonLoad();
+        }
+
+        public void LoadDocumentFromWeb(string url, int pageIndex = 0)
+        {
+            LoadDocumentFromWeb(url, null, pageIndex);
+        }
+
+        public void LoadDocumentFromWeb(string url, string password, int pageIndex = 0)
+        {
+            m_LoadAtPageIndex = pageIndex;
+
+            if (m_IsLoaded)
+                CleanUp();
+
+            m_FileSource = FileSourceType.Web;
+
+            m_FileURL = url;
+            m_FilePath = GetFileLocation();
+
+            m_Password = password;
+
+            CommonLoad();
+        }
+
+        public void LoadDocumentFromBuffer(byte[] buffer, int pageIndex = 0)
+        {
+            LoadDocumentFromBuffer(buffer, null, pageIndex);
+        }
+
+        public void LoadDocumentFromBuffer(byte[] buffer, string password, int pageIndex = 0)
+        {
+            m_LoadAtPageIndex = pageIndex;
+
+            if (m_IsLoaded)
+                CleanUp();
+
+            m_FileSource = FileSourceType.Bytes;
+
+            m_Password = password;
+
+            CommonLoad(buffer);
+        }
+
+        public void LoadDocumentFromFile(string filePath, int pageIndex = 0)
+        {
+            LoadDocumentFromFile(filePath, null, pageIndex);
+        }
+
+        public void LoadDocumentFromFile(string filePath, string password, int pageIndex = 0)
+        {
+            m_LoadAtPageIndex = pageIndex;
+
+            if (m_IsLoaded)
+                CleanUp();
+
+            m_FileSource = FileSourceType.FilePath;
+
+            m_FilePath = filePath;
+            m_Password = password;
+            m_FilePath = GetFileLocation();
+
+            m_Password = password;
+
+            CommonLoad();
+        }
 
         public void AdjustZoomToPageFitting(PageFittingType pageFitting, Vector2 referencePageSize)
         {
             switch (pageFitting)
             {
                 case PageFittingType.ViewerWidth:
-                {
-                    float firstPageWidth = referencePageSize.x;
-                    float viewportWidth = m_Internal.m_Viewport.rect.size.x;
-                    m_ZoomToGo = viewportWidth/firstPageWidth;
+                    {
+                        float firstPageWidth = referencePageSize.x;
+                        float viewportWidth = m_Internal.Viewport.rect.size.x;
+                        m_ZoomToGo = viewportWidth / firstPageWidth;
 
-                    break;
-                }
+                        break;
+                    }
                 case PageFittingType.ViewerHeight:
-                {
-                    float firstPageHeight = referencePageSize.y;
-                    float viewportHeight = m_Internal.m_Viewport.rect.size.y;
-                    m_ZoomToGo = viewportHeight/firstPageHeight;
+                    {
+                        float firstPageHeight = referencePageSize.y;
+                        float viewportHeight = m_Internal.Viewport.rect.size.y;
+                        m_ZoomToGo = viewportHeight / firstPageHeight;
 
-                    break;
-                }
+                        break;
+                    }
                 case PageFittingType.WholePage:
-                {
-                    float firstPageWidth = referencePageSize.x;
-                    float firstPageHeight = referencePageSize.y + 2.0f*m_VerticalMarginBetweenPages;
-                    float viewportWidth = m_Internal.m_Viewport.rect.size.x;
-                    float viewportHeight = m_Internal.m_Viewport.rect.size.y;
+                    {
+                        float firstPageWidth = referencePageSize.x;
+                        float firstPageHeight = referencePageSize.y + 2.0f * m_VerticalMarginBetweenPages;
+                        float viewportWidth = m_Internal.Viewport.rect.size.x;
+                        float viewportHeight = m_Internal.Viewport.rect.size.y;
 
-                    m_ZoomToGo = Mathf.Min(viewportWidth/firstPageWidth, viewportHeight/firstPageHeight);
+                        m_ZoomToGo = Mathf.Min(viewportWidth / firstPageWidth, viewportHeight / firstPageHeight);
 
-                    break;
-                }
+                        break;
+                    }
                 case PageFittingType.Zoom:
-                {
-                    break;
-                }
+                    {
+                        break;
+                    }
             }
         }
 
         public void CloseDocument()
         {
-#if !UNITY_WEBPLAYER
             if (m_IsLoaded)
             {
                 CleanUp();
             }
-#endif
         }
 
         public string GetFileLocation()
@@ -732,7 +939,7 @@ namespace Paroxe.PdfRenderer
                     folder = m_Folder + "/";
                     if (string.IsNullOrEmpty(m_Folder))
                         folder = "";
-                    
+
                     string location = ("/" + folder + m_FileName).Replace("//", "/")
                         .Replace(@"\\", @"/")
                         .Replace(@"\", @"/");
@@ -759,9 +966,7 @@ namespace Paroxe.PdfRenderer
         public void GoToNextPage()
         {
             if (m_Document == null || !m_Document.IsValid)
-            {
                 return;
-            }
 
             int mostVisiblePage = GetMostVisiblePageIndex();
 
@@ -771,17 +976,19 @@ namespace Paroxe.PdfRenderer
             }
             else
             {
-                m_Internal.m_PageContainer.anchoredPosition = new Vector2(
-                    m_Internal.m_PageContainer.anchoredPosition.x,
-                    m_Internal.m_PageContainer.sizeDelta.y - m_Internal.m_Viewport.rect.size.y);
+                m_Internal.PageContainer.anchoredPosition = new Vector2(
+                    m_Internal.PageContainer.anchoredPosition.x,
+                    m_Internal.PageContainer.sizeDelta.y - m_Internal.Viewport.rect.size.y);
             }
         }
 
         public void GoToNextSearchResult()
         {
+            if (m_Document == null || !m_Document.IsValid)
+                return;
+
             if (m_SearchResults != null && m_SearchResults.Length > 0)
             {
-
                 ++m_CurrentSearchResultIndex;
                 ++m_CurrentSearchResultIndexWithinCurrentPage;
 
@@ -811,6 +1018,9 @@ namespace Paroxe.PdfRenderer
                     {
                         --m_CurrentSearchResultIndexWithinCurrentPage;
                         --m_CurrentSearchResultIndex;
+
+                        if (!m_CurrentPageRange.ContainsPage(m_CurrentSearchResult.PageIndex))
+                            GoToPage(m_CurrentSearchResult.PageIndex);
                     }
                 }
                 else
@@ -823,9 +1033,12 @@ namespace Paroxe.PdfRenderer
                 }
             }
         }
-        public Action OnPageChanged;
+
         public void GoToPage(int pageIndex)
         {
+            if (m_Document == null || !m_Document.IsValid)
+                return;
+
             if (pageIndex < 0)
             {
                 pageIndex = 0;
@@ -835,37 +1048,20 @@ namespace Paroxe.PdfRenderer
                 pageIndex = m_PageCount - 1;
             }
 
-            m_Internal.m_PageInputField.text = (pageIndex + 1).ToString();
-            m_Internal.m_PageContainer.anchoredPosition = new Vector2(m_Internal.m_PageContainer.anchoredPosition.x,
-                m_PageOffsets[pageIndex] - m_PageSizes[pageIndex].y*0.5f);
-            m_Internal.m_PageContainer.anchoredPosition -= m_VerticalMarginBetweenPages*Vector2.up;
+            m_Internal.PageInputField.text = (pageIndex + 1).ToString();
+            m_Internal.PageContainer.anchoredPosition = new Vector2(m_Internal.PageContainer.anchoredPosition.x,
+                m_PageOffsets[pageIndex] - m_PageSizes[pageIndex].y * 0.5f);
+            m_Internal.PageContainer.anchoredPosition -= m_VerticalMarginBetweenPages * Vector2.up;
 
             SetPageCountLabel(pageIndex, m_PageCount);
 
             EnsureValidPageContainerPosition();
-          //  OnPageChanged?.Invoke();
-             
-           /* PDFDocument pdfDocument = GetLoadedDocument();
-            if (pdfDocument.IsValid)
-            {
-                int pageCount = pdfDocument.GetPageCount();
-
-                PDFRenderer renderer = new PDFRenderer();
-                Texture2D tex = renderer.RenderPageToTexture(pdfDocument.GetPage(pageIndex));
-
-                tex.filterMode = FilterMode.Bilinear;
-                tex.anisoLevel = 8;
-
-               // pdfMesh.GetComponent<MeshRenderer>().material.mainTexture = tex;
-            }*/
         }
 
         public void GoToPreviousPage()
         {
             if (m_Document == null || !m_Document.IsValid)
-            {
                 return;
-            }
 
             int mostVisiblePage = GetMostVisiblePageIndex();
 
@@ -875,12 +1071,15 @@ namespace Paroxe.PdfRenderer
             }
             else
             {
-                m_Internal.m_PageContainer.anchoredPosition = Vector2.zero;
+                m_Internal.PageContainer.anchoredPosition = Vector2.zero;
             }
         }
 
         public void GoToPreviousSearchResult()
         {
+            if (m_Document == null || !m_Document.IsValid)
+                return;
+
             if (m_SearchResults != null && m_SearchResults.Length > 0 && m_CurrentSearchResultIndex > 0)
             {
                 --m_CurrentSearchResultIndex;
@@ -924,220 +1123,28 @@ namespace Paroxe.PdfRenderer
             }
         }
 
-        public void LoadDocument(int pageIndex = 0)
-        {
-#if !UNITY_WEBPLAYER
-            if (m_IsLoaded)
-                CleanUp();
-
-            CommonLoad();
-#endif
-        }
-
-        public void LoadDocument(PDFDocument document, string password, int pageIndex)
-        {
-#if !UNITY_WEBPLAYER
-            m_LoadAtPageIndex = pageIndex;
-
-            if (m_IsLoaded)
-                CleanUp();
-
-            m_FileSource = FileSourceType.DocumentObject;
-
-            m_SuppliedDocument = document;
-            m_Password = password;
-
-            CommonLoad();
-#endif
-        }
-
-        public void LoadDocument(PDFDocument document, int pageIndex = 0)
-        {
-            LoadDocument(document, "", pageIndex);
-        }
-
-        public void LoadDocumentFromAsset(PDFAsset pdfAsset, int pageIndex = 0)
-        {
-#if !UNITY_WEBPLAYER
-            m_LoadAtPageIndex = pageIndex;
-
-            if (m_IsLoaded)
-            {
-                CleanUp();
-            }
-
-            m_FileSource = FileSourceType.Asset;
-
-            m_PDFAsset = pdfAsset;
-            m_Password = pdfAsset.Password;
-
-            CommonLoad(pdfAsset.m_FileContent);
-#endif
-        }
-
-        public void LoadDocumentFromAsset(PDFAsset pdfAsset, string password, int pageIndex = 0)
-        {
-#if !UNITY_WEBPLAYER
-            m_LoadAtPageIndex = pageIndex;
-
-            if (m_IsLoaded)
-            {
-                CleanUp();
-            }
-
-            m_FileSource = FileSourceType.Asset;
-
-            m_PDFAsset = pdfAsset;
-            m_Password = password;
-
-            CommonLoad(pdfAsset.m_FileContent);
-#endif
-        }
-
-        public void LoadDocumentFromResources(string folder, string fileName, string password, int pageIndex = 0)
-        {
-#if !UNITY_WEBPLAYER
-            m_LoadAtPageIndex = pageIndex;
-
-            if (m_IsLoaded)
-                CleanUp();
-
-            m_FileSource = FileSourceType.Resources;
-
-            m_Folder = folder;
-            m_FileName = fileName;
-            m_FilePath = GetFileLocation();
-
-            m_Password = password;
-
-            CommonLoad();
-#endif
-        }
-
-        public void LoadDocumentFromStreamingAssets(string folder, string fileName, string password, int pageIndex = 0)
-        {
-#if !UNITY_WEBPLAYER
-            m_LoadAtPageIndex = pageIndex;
-
-            if (m_IsLoaded)
-                CleanUp();
-
-            m_FileSource = FileSourceType.StreamingAssets;
-
-            m_Folder = folder;
-            m_FileName = fileName;
-            m_FilePath = GetFileLocation();
-
-            m_Password = password;
-
-            CommonLoad();
-#endif
-        }
-
-        public void LoadDocumentFromPersistentData(string folder, string fileName, string password, int pageIndex = 0)
-        {
-#if !UNITY_WEBPLAYER
-            m_LoadAtPageIndex = pageIndex;
-
-            if (m_IsLoaded)
-                CleanUp();
-
-            m_FileSource = FileSourceType.PersistentData;
-
-            m_Folder = folder;
-            m_FileName = fileName;
-            m_FilePath = GetFileLocation();
-
-            m_Password = password;
-
-            CommonLoad();
-#endif
-        }
-
-        public void LoadDocumentFromWeb(string url, string password, int pageIndex = 0)
-        {
-#if !UNITY_WEBPLAYER
-            Debug.Log("pass:" + password);
-            m_LoadAtPageIndex = pageIndex;
-
-            if (m_IsLoaded)
-                CleanUp();
-
-            m_FileSource = FileSourceType.Web;
-
-            m_FileURL = url;
-            m_FilePath = GetFileLocation();
-
-            m_Password = password;
-
-            CommonLoad();
-#endif
-        }
-
-        public void LoadDocumentWithBuffer(byte[] buffer, string password, int pageIndex = 0)
-        {
-#if !UNITY_WEBPLAYER
-            m_LoadAtPageIndex = pageIndex;
-
-            if (m_IsLoaded)
-                CleanUp();
-
-            m_FileSource = FileSourceType.Bytes;
-
-            m_Password = password;
-
-            CommonLoad(buffer);
-#endif
-        }
-
-        public void LoadDocumentWithFile(string filePath, string password, int pageIndex = 0)
-        {
-#if !UNITY_WEBPLAYER
-            m_LoadAtPageIndex = pageIndex;
-
-            if (m_IsLoaded)
-                CleanUp();
-
-            m_FileSource = FileSourceType.FilePath;
-
-            m_FilePath = filePath;
-            m_Password = password;
-            m_FilePath = GetFileLocation();
-
-            m_Password = password;
-
-            CommonLoad();
-#endif
-        }
-
-        public void OnDownloadCancelButtonClicked()
+        public void CancelDownload()
         {
 #if !UNITY_WEBGL || UNITY_EDITOR
             StopCoroutine(DownloadFileFromWWW());
 
-            m_Internal.m_DownloadDialog.gameObject.SetActive(false);
+            m_Internal.DownloadDialog.gameObject.SetActive(false);
 
-            m_WWW = null;
+            m_DownloadCanceled = true;
 
             NotifyDownloadCancelled();
-
-            CleanUp();
 #endif
         }
 
         public void OnPageEditEnd()
         {
             if (m_Document == null || !m_Document.IsValid)
-            {
                 return;
-            }
 
-            if (string.IsNullOrEmpty(m_Internal.m_PageInputField.text))
-            {
+            if (string.IsNullOrEmpty(m_Internal.PageInputField.text))
                 return;
-            }
 
-            int pageIndex = int.Parse(m_Internal.m_PageInputField.text) - 1;
+            int pageIndex = int.Parse(m_Internal.PageInputField.text) - 1;
 
             GoToPage(pageIndex);
         }
@@ -1145,8 +1152,8 @@ namespace Paroxe.PdfRenderer
         public void OnPasswordDialogCancelButtonClicked()
         {
             m_InvalidPasswordMessageVisisble = false;
-            m_Internal.m_InvalidPasswordImage.gameObject.SetActive(false);
-            m_Internal.m_InvalidPasswordImage.GetComponent<CanvasGroup>().alpha = 1.0f;
+            m_Internal.InvalidPasswordImage.gameObject.SetActive(false);
+            m_Internal.InvalidPasswordImage.GetComponent<CanvasGroup>().alpha = 1.0f;
 
             NotifyPasswordCancelled();
 
@@ -1156,38 +1163,35 @@ namespace Paroxe.PdfRenderer
         public void OnPasswordDialogOkButtonClicked()
         {
 #if !UNITY_WEBGL || UNITY_EDITOR
-            m_Password = m_Internal.m_PasswordInputField.text;
+            m_Password = m_Internal.PasswordInputField.text;
 
             if (TryLoadDocumentWithBuffer(m_PendingDocumentBuffer, m_Password))
             {
-                m_Internal.m_PasswordDialog.gameObject.SetActive(false);
+                m_Internal.PasswordDialog.gameObject.SetActive(false);
 
                 m_InvalidPasswordMessageVisisble = false;
-                m_Internal.m_InvalidPasswordImage.gameObject.SetActive(false);
-                m_Internal.m_InvalidPasswordImage.GetComponent<CanvasGroup>().alpha = 1.0f;
+                m_Internal.InvalidPasswordImage.gameObject.SetActive(false);
+                m_Internal.InvalidPasswordImage.GetComponent<CanvasGroup>().alpha = 1.0f;
 
-                m_Internal.m_PasswordInputField.text = "";
+                m_Internal.PasswordInputField.text = "";
             }
             else
             {
                 m_InvalidPasswordMessageVisisble = true;
-                m_Internal.m_InvalidPasswordImage.gameObject.SetActive(true);
-                m_Internal.m_InvalidPasswordImage.GetComponent<CanvasGroup>().alpha = 1.0f;
+                m_Internal.InvalidPasswordImage.gameObject.SetActive(true);
+                m_Internal.InvalidPasswordImage.GetComponent<CanvasGroup>().alpha = 1.0f;
                 m_InvalidPasswordMessageDelay = m_InvalidPasswordMessageDelayBeforeFade;
 
-                m_Internal.m_PasswordInputField.Select();
+                m_Internal.PasswordInputField.Select();
             }
 #endif
         }
 
         public void ReloadDocument(int pageIndex = 0)
         {
-#if !UNITY_WEBPLAYER
             LoadDocument(pageIndex);
-#endif
         }
 
-#if (!UNITY_WINRT && !UNITY_WEBGL) || UNITY_EDITOR
         public bool SaveDocumentAsFile(string path)
         {
             if (m_Document == null || m_Document.DocumentBuffer == null)
@@ -1217,7 +1221,6 @@ namespace Paroxe.PdfRenderer
 
             return false;
         }
-#endif
 
         public void SetSearchResults(IList<PDFSearchResult>[] searchResults)
         {
@@ -1251,22 +1254,24 @@ namespace Paroxe.PdfRenderer
 
         public void UnloadDocument()
         {
-#if !UNITY_WEBPLAYER
             if (m_IsLoaded)
-            {
                 CleanUp();
-            }
-#endif
         }
 
         public void ZoomIn()
         {
-            ZoomCommon(new Vector2(0.0f, m_Internal.m_Viewport.rect.size.y * 0.5f), true);
+            if (m_Document == null || !m_Document.IsValid)
+                return;
+
+            ZoomCommon(new Vector2(0.0f, m_Internal.Viewport.rect.size.y * 0.5f), true);
         }
 
         public void ZoomOut()
         {
-            ZoomCommon(new Vector2(0.0f, m_Internal.m_Viewport.rect.size.y * 0.5f), false);
+            if (m_Document == null || !m_Document.IsValid)
+                return;
+
+            ZoomCommon(new Vector2(0.0f, m_Internal.Viewport.rect.size.y * 0.5f), false);
         }
 
         private void AdjustCurrentSearchResultDisplayed()
@@ -1372,25 +1377,28 @@ namespace Paroxe.PdfRenderer
                         Texture2D tex = holder.Texture;
                         holder.Texture = null;
 
-                        Texture2D.Destroy(tex);
-                        Resources.UnloadUnusedAssets();
+                        Destroy(tex);
                     }
 
-                    if (holder.m_Page.name != "Page")
+                    if (holder.Page.name != "Page")
                     {
-                        Destroy(holder.m_Page);
+                        Destroy(holder.Page);
+                    }
+                    else
+                    {
+	                    holder.Page.GetComponent<PDFViewerPage>().ClearCache();
                     }
                 }
             }
 
 #if !UNITY_WEBGL
-            m_Internal.m_SearchPanel.GetComponent<PDFSearchPanel>().Close();
+            m_Internal.SearchPanel.GetComponent<PDFSearchPanel>().Close();
 #endif
 
             m_IsLoaded = false;
 
-            m_Internal.m_PageContainer.anchoredPosition = Vector2.zero;
-            m_Internal.m_PageContainer.sizeDelta = Vector2.zero;
+            m_Internal.PageContainer.anchoredPosition = Vector2.zero;
+            m_Internal.PageContainer.sizeDelta = Vector2.zero;
             UpdateScrollBarVisibility();
             EnsureValidPageContainerPosition();
 
@@ -1405,44 +1413,42 @@ namespace Paroxe.PdfRenderer
             m_CurrentPageRange = null;
             m_PreviousMostVisiblePage = -1;
 
-            m_OverlayVisible = false;
+            OverlayVisible = false;
             m_InvalidPasswordMessageVisisble = false;
-            m_Internal.m_Overlay.gameObject.SetActive(false);
-            m_Internal.m_PasswordDialog.gameObject.SetActive(false);
-            m_Internal.m_DownloadDialog.gameObject.SetActive(false);
+            m_Internal.Overlay.gameObject.SetActive(false);
+            m_Internal.PasswordDialog.gameObject.SetActive(false);
+            m_Internal.DownloadDialog.gameObject.SetActive(false);
 
-            m_Internal.m_PageCountLabel.text = "";
-            m_Internal.m_PageZoomLabel.text = "";
-            m_Internal.m_PageInputField.text = "";
-
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
+            m_LastSetLabelPageIndex = null;
+            m_LastSetLabelPageCount = null;
+            m_Internal.PageCountLabel.text = "";
+            m_Internal.PageZoomLabel.text = "";
+            m_Internal.PageInputField.text = "";
         }
 
         private void CommonLoad(byte[] specifiedBuffer = null)
         {
-#if !UNITY_WEBPLAYER
             UpdateScrollBarVisibility();
-            EnsureValidPageContainerPosition();
 
             m_IsLoaded = false;
 
             if (m_FileSource == FileSourceType.None)
             {
-                m_OverlayVisible = true;
-                m_Internal.m_Overlay.gameObject.SetActive(true);
-                m_Internal.m_Overlay.GetComponent<CanvasGroup>().alpha = 1.0f;
+                OverlayVisible = true;
+                m_Internal.Overlay.gameObject.SetActive(true);
+                m_Internal.Overlay.alpha = OverlayAlpha;
                 return;
             }
 
+            if (m_FileSource != FileSourceType.DocumentObject)
+	            m_SuppliedDocument = null;
+
 #if UNITY_WEBGL && !UNITY_EDITOR
-            StartCoroutine(LoadDocument_WebGL(specifiedBuffer));
-            return;
+			StartCoroutine(LoadDocument_WebGL(specifiedBuffer));
+
+			return;
 #else
             byte[] buffer = specifiedBuffer;
-
-            if (m_FileSource != FileSourceType.DocumentObject)
-                m_SuppliedDocument = null;
 
             if (m_FileSource == FileSourceType.DocumentObject)
             {
@@ -1450,10 +1456,8 @@ namespace Paroxe.PdfRenderer
             }
             else if (m_FileSource == FileSourceType.FilePath)
             {
-#if !(UNITY_4_6 || UNITY_4_7)
                 buffer = File.ReadAllBytes(GetFileLocation());
                 OnLoadingBufferFinished(buffer);
-#endif
             }
             else if (m_FileSource == FileSourceType.Resources)
             {
@@ -1485,21 +1489,17 @@ namespace Paroxe.PdfRenderer
             }
             else if (m_FileSource == FileSourceType.Bytes)
             {
-#if !(UNITY_4_6 || UNITY_4_7)
                 if (buffer != null)
                 {
                     OnLoadingBufferFinished(buffer);
                 }
                 else if (BytesSupplierComponent != null)
                 {
-#if UNITY_WINRT
-                    MethodInfo methodInfo = BytesSupplierComponent.GetType().GetMethod(BytesSupplierFunctionName, BindingFlags.Public);
-#else
                     MethodInfo methodInfo = BytesSupplierComponent.GetType().GetMethod(BytesSupplierFunctionName);
-#endif
+
                     if (methodInfo != null)
                     {
-                        buffer = (byte[]) methodInfo.Invoke(BytesSupplierComponent, null);
+                        buffer = (byte[])methodInfo.Invoke(BytesSupplierComponent, null);
                     }
 
                     if (buffer != null)
@@ -1507,7 +1507,6 @@ namespace Paroxe.PdfRenderer
                         OnLoadingBufferFinished(buffer);
                     }
                 }
-#endif
 
                 if (buffer == null)
                 {
@@ -1526,7 +1525,6 @@ namespace Paroxe.PdfRenderer
                 }
             }
 #endif
-#endif
         }
 
         private void ComputePageOffsets()
@@ -1537,7 +1535,7 @@ namespace Paroxe.PdfRenderer
 
             for (int i = 0; i < m_PageCount; ++i)
             {
-                m_PageOffsets[i] = totalOffset + m_PageSizes[i].y*0.5f;
+                m_PageOffsets[i] = totalOffset + m_PageSizes[i].y * 0.5f;
 
                 totalOffset += m_VerticalMarginBetweenPages + m_PageSizes[i].y;
             }
@@ -1554,8 +1552,8 @@ namespace Paroxe.PdfRenderer
 #if UNITY_WEBGL && !UNITY_EDITOR
                 m_PageSizes[i] = m_NormalPageSizes[i] * m_ZoomFactor;
 #else
-                float w = (m_Document.GetPageWidth(i) * m_ZoomFactor);
-                float h = (m_Document.GetPageHeight(i) * m_ZoomFactor);
+                float w = m_Document.GetPageWidth(i) * m_ZoomFactor;
+                float h = m_Document.GetPageHeight(i) * m_ZoomFactor;
 
                 m_PageSizes[i] = new Vector2(w, h);
 #endif
@@ -1573,6 +1571,9 @@ namespace Paroxe.PdfRenderer
             
             switch (m_FileSource)
             {
+                case FileSourceType.DocumentObject:
+	                StartCoroutine(LoadWithDocument(m_SuppliedDocument));
+                    yield break;
                 case FileSourceType.Asset:
                     if (m_PDFAsset.m_FileContent == null || m_PDFAsset.m_FileContent.Length == 0)
                         yield break;
@@ -1623,16 +1624,16 @@ namespace Paroxe.PdfRenderer
             }
             else
             {
-                m_OverlayVisible = true;
-                m_Internal.m_Overlay.gameObject.SetActive(true);
-                m_Internal.m_Overlay.GetComponent<CanvasGroup>().alpha = 0.0f;
+                OverlayVisible = true;
+                m_Internal.Overlay.gameObject.SetActive(true);
+                m_Internal.Overlay.GetComponent<CanvasGroup>().alpha = 0.0f;
 
-                m_Internal.m_DownloadDialog.gameObject.SetActive(true);
+                m_Internal.DownloadDialog.gameObject.SetActive(true);
 
-                m_Internal.m_DownloadSourceLabel.text = GetFileLocation();
+                m_Internal.DownloadSourceLabel.text = GetFileLocation();
 
-                m_Internal.m_ProgressRect.sizeDelta = new Vector2(0.0f, m_Internal.m_ProgressRect.sizeDelta.y);
-                m_Internal.m_ProgressLabel.text = "0%";
+                m_Internal.ProgressRect.sizeDelta = new Vector2(0.0f, m_Internal.ProgressRect.sizeDelta.y);
+                m_Internal.ProgressLabel.text = "0%";
 
                 while (!documentPromise.HasFinished)
                 {
@@ -1641,116 +1642,125 @@ namespace Paroxe.PdfRenderer
                     yield return null;
                 }
 
-                m_Internal.m_DownloadDialog.gameObject.SetActive(false);
+                m_Internal.DownloadDialog.gameObject.SetActive(false);
             }
 
             if (documentPromise.HasSucceeded)
             {
-                m_Document = documentPromise.Result;
-
-                m_NormalPageSizes = new Vector2[m_Document.GetPageCount()];
-
-                for (int i = 0; i < m_NormalPageSizes.Length; ++i)
-                {
-                    PDFJS_Promise<PDFPage> pagePromise = m_Document.GetPageAsync(i);
-
-                    while (!pagePromise.HasFinished)
-                        yield return null;
-
-                    if (pagePromise.HasSucceeded)
-                    {
-                        PDFPage page = pagePromise.Result;
-
-                        m_NormalPageSizes[i] = page.GetPageSize(1.0f);
-                    }
-                    else
-                    {
-                        NotifyDocumentLoadFailed();
-                        yield break;
-                    }
-                }
-
-                TryLoadWithSpecifiedDocument(m_Document);
+	            StartCoroutine(LoadWithDocument(documentPromise.Result));
             }
             else
             {
                 NotifyDocumentLoadFailed();
-                yield break;
             }
+        }
+
+        private IEnumerator LoadWithDocument(PDFDocument document)
+        {
+	        m_Document = document;
+
+	        m_NormalPageSizes = new Vector2[m_Document.GetPageCount()];
+
+	        for (int i = 0; i < m_NormalPageSizes.Length; ++i)
+	        {
+		        PDFJS_Promise<PDFPage> pagePromise = m_Document.GetPageAsync(i);
+
+		        while (!pagePromise.HasFinished)
+			        yield return null;
+
+		        if (pagePromise.HasSucceeded)
+		        {
+			        PDFPage page = pagePromise.Result;
+
+			        m_NormalPageSizes[i] = page.GetPageSize(1.0f);
+		        }
+		        else
+		        {
+			        NotifyDocumentLoadFailed();
+			        yield break;
+		        }
+	        }
+
+	        TryLoadWithSpecifiedDocument(m_Document);
         }
 #endif
 
 #if !UNITY_WEBGL || UNITY_EDITOR
-        IEnumerator DownloadFileFromWWW()
+        private IEnumerator DownloadFileFromWWW()
         {
-            m_OverlayVisible = true;
-            m_Internal.m_Overlay.gameObject.SetActive(true);
-            m_Internal.m_Overlay.GetComponent<CanvasGroup>().alpha = 0.0f;
+            OverlayVisible = true;
+            m_Internal.Overlay.gameObject.SetActive(true);
+            m_Internal.Overlay.alpha = 0.0f;
 
-            m_Internal.m_DownloadDialog.gameObject.SetActive(true);
+            m_Internal.DownloadDialog.gameObject.SetActive(true);
 
             if (m_FileSource == FileSourceType.Web)
             {
-                m_Internal.m_DownloadSourceLabel.text = GetFileLocation();
+                m_Internal.DownloadSourceLabel.text = GetFileLocation();
             }
             else
             {
-                m_Internal.m_DownloadSourceLabel.text = "";
+                m_Internal.DownloadSourceLabel.text = "";
             }
 
-            m_Internal.m_ProgressRect.sizeDelta = new Vector2(0.0f, m_Internal.m_ProgressRect.sizeDelta.y);
-            m_Internal.m_ProgressLabel.text = "0%";
+            m_Internal.ProgressRect.sizeDelta = new Vector2(0.0f, m_Internal.ProgressRect.sizeDelta.y);
+            m_Internal.ProgressLabel.text = "0%";
 
-            m_WWW = new WWW(GetFileLocation());
+            PDFWebRequest www = new PDFWebRequest(GetFileLocation());
+            www.SendWebRequest();
 
-            yield return m_WWW;
+            m_DownloadCanceled = false;
 
-            if (m_WWW != null && string.IsNullOrEmpty(m_WWW.error) && m_WWW.isDone)
+            while (!www.isDone && !m_DownloadCanceled)
+            {
+                SetProgress(www.progress);
+                yield return null;
+            }
+            
+            if (!m_DownloadCanceled && string.IsNullOrEmpty(www.error) && www.isDone)
             {
                 SetProgress(1.0f);
 
-                OnLoadingBufferFinished(m_WWW.bytes);
+                OnLoadingBufferFinished(www.bytes);
             }
-            else if (m_WWW == null || !string.IsNullOrEmpty(m_WWW.error))
+            else if (m_DownloadCanceled || !string.IsNullOrEmpty(www.error))
             {
                 NotifyDocumentLoadFailed();
             }
 
-            m_Internal.m_DownloadDialog.gameObject.SetActive(false);
+            www.Dispose();
+            www = null;
+
+            m_Internal.DownloadDialog.gameObject.SetActive(false);
         }
 #endif
 
         private void EnsureValidPageContainerPosition()
         {
-            if (GetDocumentSize().x <= m_Internal.m_Viewport.rect.size.x)
+            if (m_PageSizes == null || GetDocumentSize().x <= m_Internal.Viewport.rect.size.x)
             {
-                m_Internal.m_PageContainer.anchoredPosition = new Vector2(0.0f,
-                    m_Internal.m_PageContainer.anchoredPosition.y);
+                m_Internal.PageContainer.anchoredPosition = new Vector2(0.0f,
+                    m_Internal.PageContainer.anchoredPosition.y);
             }
 
-            if (m_Internal.m_PageContainer.anchoredPosition.y >
-                m_Internal.m_PageContainer.sizeDelta.y - m_Internal.m_Viewport.rect.size.y)
+            if (m_Internal.PageContainer.anchoredPosition.y >
+                m_Internal.PageContainer.sizeDelta.y - m_Internal.Viewport.rect.size.y)
             {
-                m_Internal.m_PageContainer.anchoredPosition = new Vector2(
-                    m_Internal.m_PageContainer.anchoredPosition.x,
-                    m_Internal.m_PageContainer.sizeDelta.y - m_Internal.m_Viewport.rect.size.y);
+                m_Internal.PageContainer.anchoredPosition = new Vector2(
+                    m_Internal.PageContainer.anchoredPosition.x,
+                    m_Internal.PageContainer.sizeDelta.y - m_Internal.Viewport.rect.size.y);
             }
 
-            if (m_Internal.m_PageContainer.anchoredPosition.y < 0.0f)
+            if (m_Internal.PageContainer.anchoredPosition.y < 0.0f)
             {
-                m_Internal.m_PageContainer.anchoredPosition = new Vector2(
-                    m_Internal.m_PageContainer.anchoredPosition.x, 0.0f);
+                m_Internal.PageContainer.anchoredPosition = new Vector2(
+                    m_Internal.PageContainer.anchoredPosition.x, 0.0f);
             }
         }
 
         private Vector2 GetDocumentSize()
         {
             Vector2 size = new Vector2(0.0f, 0.0f);
-
-            if (m_PageSizes == null)
-            {
-                return size;
-            }
 
             foreach (Vector2 s in m_PageSizes)
             {
@@ -1775,13 +1785,11 @@ namespace Paroxe.PdfRenderer
 
             for (int i = m_CurrentPageRange.m_From; i < m_CurrentPageRange.m_To; ++i)
             {
-                RectTransform page = m_Internal.m_PageContainer.GetChild(i) as RectTransform;
-                float area = PDFInternalUtils.CalculateRectTransformIntersectArea(page, m_Internal.m_Viewport);
+                RectTransform page = (RectTransform)m_Internal.PageContainer.GetChild(i);
+                float area = PDFInternalUtils.CalculateRectTransformIntersectArea(page, m_Internal.Viewport);
 
-                if (area > page.sizeDelta.x*page.sizeDelta.y*0.4f)
-                {
+                if (area > page.sizeDelta.x * page.sizeDelta.y * 0.4f)
                     return i;
-                }
 
                 if (area > mostVisibleArea)
                 {
@@ -1795,27 +1803,33 @@ namespace Paroxe.PdfRenderer
 
         private static bool Intersect(Rect box0, Rect box1)
         {
-            if (box0.xMax < box1.xMin || box0.xMin > box1.xMax) return false;
-            if (box0.yMax < box1.yMin || box0.yMin > box1.yMax) return false;
+            if (box0.xMax < box1.xMin || box0.xMin > box1.xMax)
+                return false;
+            if (box0.yMax < box1.yMin || box0.yMin > box1.yMax)
+                return false;
+
             return true;
         }
 
         private PDFPageRange GetVisiblePageRange()
         {
+            if (m_PageCount == 0)
+                throw new Exception("There is no document loaded.");
+
             PDFPageRange pageRange = new PDFPageRange();
 
             for (int i = 0; i < m_PageCount; ++i)
             {
-                RectTransform rt = m_Internal.m_PageContainer.GetChild(i) as RectTransform;
+                RectTransform rt = (RectTransform)m_Internal.PageContainer.GetChild(i);
 
-                Rect pageRect = new Rect(-m_Internal.m_PageContainer.anchoredPosition - rt.anchoredPosition, rt.rect.size);
-                Rect viewportRect = new Rect(new Vector2(0.0f, m_Internal.m_Viewport.rect.size.y * 0.5f), m_Internal.m_Viewport.rect.size);
+                Rect pageRect = new Rect(-m_Internal.PageContainer.anchoredPosition - rt.anchoredPosition, rt.rect.size);
+                Rect viewportRect = new Rect(new Vector2(0.0f, m_Internal.Viewport.rect.size.y * 0.5f), m_Internal.Viewport.rect.size);
 
                 pageRect.position = Vector2.zero;
                 viewportRect.position = Vector2.zero;
 
-                pageRect.center = -m_Internal.m_PageContainer.anchoredPosition - rt.anchoredPosition;
-                viewportRect.center = new Vector2(0.0f, m_Internal.m_Viewport.rect.size.y * 0.5f);
+                pageRect.center = -m_Internal.PageContainer.anchoredPosition - rt.anchoredPosition;
+                viewportRect.center = new Vector2(0.0f, m_Internal.Viewport.rect.size.y * 0.5f);
 
                 if (Intersect(pageRect, viewportRect))
 
@@ -1851,35 +1865,28 @@ namespace Paroxe.PdfRenderer
 
                 for (int i = 0; i < m_PageCount; ++i)
                 {
-                    m_PageTextureHolders[i] = new PDFPageTextureHolder();
+	                GameObject page = i == 0 
+	                    ? m_Internal.PageSample.gameObject 
+	                    : Instantiate(m_Internal.PageSample.gameObject);
 
-                    GameObject page = null;
-                    if (i == 0)
-                        page = m_Internal.m_PageSample.gameObject;
-                    else
-                        page = (GameObject)Instantiate(m_Internal.m_PageSample.gameObject);
-
-                    page.transform.SetParent(m_Internal.m_PageSample.transform.parent, false);
+                    page.transform.SetParent(m_Internal.PageSample.transform.parent, false);
                     page.transform.localScale = Vector3.one;
                     page.transform.localRotation = Quaternion.identity;
 
-                    m_PageTextureHolders[i].m_PageIndex = i;
-                    m_PageTextureHolders[i].m_Page = page;
-                    m_PageTextureHolders[i].m_PDFViewer = this;
-                    m_PageTextureHolders[i].Texture = null;
+                    PDFPageTextureHolder textureHolder = new PDFPageTextureHolder
+                    {
+	                    PageIndex = i, 
+	                    Page = page, 
+	                    Viewer = this
+                    };
+
+                    m_PageTextureHolders[i] = textureHolder;
                 }
             }
         }
 
-        void Update()
+        private void Update()
         {
-#if !UNITY_WEBGL || UNITY_EDITOR
-            if (m_WWW != null && !m_WWW.isDone)
-            {
-                SetProgress(m_WWW.progress);
-            }
-#endif
-
             if (m_DelayedOnEnable)
             {
                 m_DelayedOnEnable = false;
@@ -1890,19 +1897,59 @@ namespace Paroxe.PdfRenderer
                 }
                 else
                 {
-                    m_OverlayVisible = true;
-                    m_Internal.m_Overlay.gameObject.SetActive(true);
-                    m_Internal.m_Overlay.GetComponent<CanvasGroup>().alpha = 1.0f;
+                    OverlayVisible = true;
+                    m_Internal.Overlay.gameObject.SetActive(true);
+                    m_Internal.Overlay.alpha = OverlayAlpha;
                 }
             }
 
-            if (Input.touchCount >= 2)
+            ProcessPinchZoom();
+        }
+
+        private void ProcessPinchZoom()
+        {
+            if (m_GraphicRaycaster == null)
+            {
+                if (m_Canvas == null)
+                    CacheCanvas();
+
+                if (m_GraphicRaycaster == null)
+                    return;
+            }
+            
+            int validTouchCount = 0;
+
+            if (Input.touchCount >= 1)
+            {
+                foreach (Touch touch in Input.touches)
+                {
+                    if (EventSystem.current.IsPointerOverGameObject(touch.fingerId))
+                    {
+                        PointerEventData ped = new PointerEventData(null);
+                        ped.position = touch.position;
+                        List<RaycastResult> results = new List<RaycastResult>();
+                        m_GraphicRaycaster.Raycast(ped, results);
+
+                        foreach (RaycastResult result in results)
+                        {
+                            if (result.gameObject.GetComponentInParent<PDFViewer>() == this)
+                            {
+                                ++validTouchCount;
+
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (validTouchCount >= 2)
             {
                 if (m_PreviousTouchCount < 2)
                 {
                     m_PinchZoomStartZoomFactor = ZoomFactor;
 
-                    ScrollRect scrollRect = m_Internal.m_Viewport.GetComponent<ScrollRect>();
+                    ScrollRect scrollRect = m_Internal.Viewport.GetComponent<ScrollRect>();
 
                     scrollRect.inertia = false;
                     scrollRect.horizontal = false;
@@ -1924,18 +1971,15 @@ namespace Paroxe.PdfRenderer
             else if (m_PreviousTouchCount >= 2)
                 StartCoroutine(DelayedUnlockScrollRect());
 
-            m_PreviousTouchCount = Input.touchCount;
+            m_PreviousTouchCount = validTouchCount;
         }
-        private int m_PreviousTouchCount;
-        private float m_PinchZoomStartZoomFactor;
-        private float m_PinchZoomStartDeltaMag;
 
-        IEnumerator DelayedUnlockScrollRect()
+        private IEnumerator DelayedUnlockScrollRect()
         {
             while (Input.touchCount != 0)
                 yield return null;
 
-            ScrollRect scrollRect = m_Internal.m_Viewport.GetComponent<ScrollRect>();
+            ScrollRect scrollRect = m_Internal.Viewport.GetComponent<ScrollRect>();
 
             scrollRect.inertia = true;
             scrollRect.horizontal = true;
@@ -1946,16 +1990,12 @@ namespace Paroxe.PdfRenderer
         {
             string fixedPath = path.Replace(".bytes", "");
             if (fixedPath.StartsWith("./"))
-            {
                 fixedPath = fixedPath.Substring(2);
-            }
 
-            var pdfAsset = Resources.Load(fixedPath, typeof (TextAsset)) as TextAsset;
+            TextAsset pdfAsset = Resources.Load(fixedPath, typeof(TextAsset)) as TextAsset;
 
             if (pdfAsset != null && pdfAsset.bytes != null && pdfAsset.bytes.Length > 0)
-            {
                 return pdfAsset.bytes;
-            }
 
             return null;
         }
@@ -1963,9 +2003,7 @@ namespace Paroxe.PdfRenderer
         private void NotifyCurrentPageChanged(int oldPageIndex, int newPageIndex)
         {
             if (OnCurrentPageChanged != null)
-            {
                 OnCurrentPageChanged(this, oldPageIndex, newPageIndex);
-            }
 
             m_ThumbnailsViewer.OnCurrentPageChanged(newPageIndex);
         }
@@ -1973,17 +2011,15 @@ namespace Paroxe.PdfRenderer
         private void NotifyDisabled()
         {
             if (OnDisabled != null)
-            {
                 OnDisabled(this);
-            }
         }
 
         private void NotifyDocumentLoaded(PDFDocument document)
         {
+            EnsureValidPageContainerPosition();
+
             if (OnDocumentLoaded != null)
-            {
                 OnDocumentLoaded(this, document);
-            }
 
             m_ThumbnailsViewer.OnDocumentLoaded(document);
             m_BookmarksViewer.OnDocumentLoaded(document);
@@ -1992,17 +2028,13 @@ namespace Paroxe.PdfRenderer
         private void NotifyDocumentLoadFailed()
         {
             if (OnDocumentLoadFailed != null)
-            {
                 OnDocumentLoadFailed(this);
-            }
         }
 
         private void NotifyDocumentUnloaded(PDFDocument document)
         {
             if (OnDocumentUnloaded != null)
-            {
                 OnDocumentUnloaded(this, document);
-            }
 
             m_ThumbnailsViewer.OnDocumentUnloaded();
             m_BookmarksViewer.OnDocumentUnloaded();
@@ -2011,25 +2043,19 @@ namespace Paroxe.PdfRenderer
         private void NotifyDownloadCancelled()
         {
             if (OnDownloadCancelled != null)
-            {
                 OnDownloadCancelled(this);
-            }
         }
 
         private void NotifyPasswordCancelled()
         {
             if (OnPasswordCancelled != null)
-            {
                 OnPasswordCancelled(this);
-            }
         }
 
         private void NotifyZoomChanged(float oldZoom, float newZoom)
         {
             if (OnZoomChanged != null)
-            {
                 OnZoomChanged(this, oldZoom, newZoom);
-            }
         }
 
         protected override void OnDisable()
@@ -2046,9 +2072,6 @@ namespace Paroxe.PdfRenderer
             }
 
             NotifyDisabled();
-
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
         }
 
         protected override void OnEnable()
@@ -2058,28 +2081,28 @@ namespace Paroxe.PdfRenderer
             m_DelayedOnEnable = true;
 
             if (m_ThumbnailsViewer == null)
-                m_ThumbnailsViewer = m_Internal.m_LeftPanel.m_ThumbnailsViewer;
+                m_ThumbnailsViewer = m_Internal.LeftPanel.ThumbnailsViewer;
             if (m_BookmarksViewer == null)
-                m_BookmarksViewer = m_Internal.m_LeftPanel.m_Bookmarks.GetComponent<PDFBookmarksViewer>();
+                m_BookmarksViewer = m_Internal.LeftPanel.Bookmarks.GetComponent<PDFBookmarksViewer>();
 
             if (!m_ShowBookmarksViewer && m_ShowThumbnailsViewer)
-                m_Internal.m_LeftPanel.OnThumbnailsTabClicked();
+                m_Internal.LeftPanel.OnThumbnailsTabClicked();
             else if (m_ShowBookmarksViewer && !m_ShowThumbnailsViewer)
-                m_Internal.m_LeftPanel.OnBookmarksTabClicked();
+                m_Internal.LeftPanel.OnBookmarksTabClicked();
             else
-                m_Internal.m_LeftPanel.OnBookmarksTabClicked();
+                m_Internal.LeftPanel.OnBookmarksTabClicked();
 
             m_ThumbnailsViewer.DoOnEnable();
             m_BookmarksViewer.DoOnEnable();
 
 #if UNITY_WEBGL
-            m_Internal.m_SearchPanel.gameObject.SetActive(false);
+            m_Internal.SearchPanel.gameObject.SetActive(false);
 
-            int c = m_Internal.m_TopPanel.childCount;
+            int c = m_Internal.TopPanel.childCount;
             for (int i = 0; i < c; ++i)
             {
-                Transform t = m_Internal.m_TopPanel.GetChild(i);
-                if (t.name == "_SearchButton")
+                Transform t = m_Internal.TopPanel.GetChild(i);
+                if (t.name == "SearchButton")
                     t.gameObject.SetActive(false);
             }
 #endif
@@ -2107,41 +2130,48 @@ namespace Paroxe.PdfRenderer
             }
             else
             {
-                m_OverlayVisible = true;
-                m_Internal.m_Overlay.gameObject.SetActive(true);
-                m_Internal.m_Overlay.GetComponent<CanvasGroup>().alpha = 1.0f;
+                OverlayVisible = true;
+                m_Internal.Overlay.gameObject.SetActive(true);
+                m_Internal.Overlay.alpha = OverlayAlpha;
             }
         }
 #endif
 
         private void SetPageCountLabel(int pageIndex, int pageCount)
         {
-            m_Internal.m_PageCountLabel.text = "(" + pageIndex + " of " + pageCount + ")";
+            if (m_LastSetLabelPageIndex == null || m_LastSetLabelPageIndex.Value != pageIndex
+                || m_LastSetLabelPageCount == null || m_LastSetLabelPageCount.Value != pageCount)
+			{
+                m_Internal.PageCountLabel.text = "(" + pageIndex + " of " + pageCount + ")";
+
+                m_LastSetLabelPageIndex = pageIndex;
+                m_LastSetLabelPageCount = pageCount;
+            }
         }
 
         private void SetProgress(float progress)
         {
-            var rectTransform = m_Internal.m_ProgressRect.parent.transform as RectTransform;
+            RectTransform rectTransform = (RectTransform)m_Internal.ProgressRect.parent.transform;
             if (rectTransform != null)
             {
-                m_Internal.m_ProgressRect.sizeDelta = new Vector2(Mathf.Clamp01(progress) *rectTransform.sizeDelta.x,
-                    m_Internal.m_ProgressRect.sizeDelta.y);
+                m_Internal.ProgressRect.sizeDelta = new Vector2(Mathf.Clamp01(progress) * rectTransform.sizeDelta.x,
+                    m_Internal.ProgressRect.sizeDelta.y);
             }
-            m_Internal.m_ProgressLabel.text = ((int) (Mathf.Clamp01(progress) * 100)) + "%";
+            m_Internal.ProgressLabel.text = (int)(Mathf.Clamp01(progress) * 100) + "%";
         }
 
         private void SetZoomLabel()
         {
-            m_Internal.m_PageZoomLabel.text = "(" + (int) (Mathf.Round(m_ZoomFactor*100.0f)) + "%)";
+            m_Internal.PageZoomLabel.text = "(" + (int)Mathf.Round(m_ZoomFactor * 100.0f) + "%)";
         }
 
         private void ShowPasswordDialog()
         {
-            m_OverlayVisible = true;
-            m_Internal.m_Overlay.gameObject.SetActive(true);
-            m_Internal.m_Overlay.GetComponent<CanvasGroup>().alpha = 0.0f;
+            OverlayVisible = true;
+            m_Internal.Overlay.gameObject.SetActive(true);
+            m_Internal.Overlay.alpha = 0.0f;
 
-            m_Internal.m_PasswordDialog.gameObject.SetActive(true);
+            m_Internal.PasswordDialog.gameObject.SetActive(true);
         }
 
         protected override void Start()
@@ -2175,12 +2205,10 @@ namespace Paroxe.PdfRenderer
                 m_NormalPageSizes = new Vector2[m_PageCount];
 
                 for (int i = 0; i < m_NormalPageSizes.Length; ++i)
-                {
                     m_NormalPageSizes[i] = m_Document.GetPageSize(i);
-                }
 #endif
 
-                m_Internal.m_ScrollRect.scrollSensitivity = m_ScrollSensitivity;
+                m_Internal.ScrollRect.scrollSensitivity = m_ScrollSensitivity;
 
                 m_PreviousPageFitting = m_PageFitting;
                 AdjustZoomToPageFitting(m_PageFitting, m_NormalPageSizes[0]);
@@ -2191,12 +2219,12 @@ namespace Paroxe.PdfRenderer
 
                 InstantiatePageTextureHolders();
 
-                m_Internal.m_PageContainer.sizeDelta = GetDocumentSize();
+                m_Internal.PageContainer.sizeDelta = GetDocumentSize();
 
                 SetPageCountLabel(1, m_PageCount);
                 SetZoomLabel();
 
-                m_Internal.m_PageContainer.anchoredPosition = Vector2.zero;
+                m_Internal.PageContainer.anchoredPosition = Vector2.zero;
 
                 m_IsLoaded = true;
 
@@ -2211,17 +2239,14 @@ namespace Paroxe.PdfRenderer
 
                 NotifyDocumentLoaded(m_Document);
 
-                if (m_ShowBookmarksViewer)
-                    ShowBookmarksViewer = true;
+                UpdateBookmarksViewerVisibility(m_ShowBookmarksViewer);
 
                 return true;
             }
-            else
-            {
-                m_OverlayVisible = true;
-                m_Internal.m_Overlay.gameObject.SetActive(true);
-                m_Internal.m_Overlay.GetComponent<CanvasGroup>().alpha = 1.0f;
-            }
+
+            OverlayVisible = true;
+            m_Internal.Overlay.gameObject.SetActive(true);
+            m_Internal.Overlay.alpha = OverlayAlpha;
 
             m_IsLoaded = false;
 
@@ -2230,56 +2255,53 @@ namespace Paroxe.PdfRenderer
             return false;
         }
 
-        void LateUpdate()
+        private void LateUpdate()
         {
             if (m_InvalidPasswordMessageVisisble && m_InvalidPasswordMessageDelay >= 0.0f)
             {
                 m_InvalidPasswordMessageDelay = m_InvalidPasswordMessageDelay - Time.deltaTime;
+
                 if (m_InvalidPasswordMessageDelay < 0.0f)
-                {
                     m_InvalidPasswordMessageDelay = 0.0f;
-                }
-                CanvasGroup messageCanvas = m_Internal.m_InvalidPasswordImage.GetComponent<CanvasGroup>();
+
+                CanvasGroup messageCanvas = m_Internal.InvalidPasswordImage.GetComponent<CanvasGroup>();
 
                 if (m_InvalidPasswordMessageDelay <= 0.0f)
-                {
                     messageCanvas.alpha = Mathf.Clamp01(messageCanvas.alpha - Time.deltaTime);
-                }
 
                 if (messageCanvas.alpha <= 0.0f)
                 {
                     m_InvalidPasswordMessageVisisble = false;
                     messageCanvas.alpha = 1.0f;
-                    m_Internal.m_InvalidPasswordImage.gameObject.SetActive(false);
+                    m_Internal.InvalidPasswordImage.gameObject.SetActive(false);
                 }
             }
 
-            if (m_OverlayVisible && !m_IsLoaded)
+            if (OverlayVisible && !m_IsLoaded)
             {
-                CanvasGroup overlayCanvas = m_Internal.m_Overlay.GetComponent<CanvasGroup>();
+                CanvasGroup overlayCanvas = m_Internal.Overlay;
 
-                overlayCanvas.alpha = Mathf.Clamp01(overlayCanvas.alpha + Time.deltaTime*2.0f);
+                overlayCanvas.alpha = Mathf.Clamp01(overlayCanvas.alpha + Time.deltaTime * 2.0f);
 
-                if (overlayCanvas.alpha > m_OverlayAlpha)
-                {
-                    overlayCanvas.alpha = m_OverlayAlpha;
-                }
+                if (overlayCanvas.alpha > OverlayAlpha)
+                    overlayCanvas.alpha = OverlayAlpha;
             }
-            else if (m_OverlayVisible && m_IsLoaded)
+            else if (OverlayVisible && m_IsLoaded)
             {
-                CanvasGroup overlayCanvas = m_Internal.m_Overlay.GetComponent<CanvasGroup>();
+                CanvasGroup overlayCanvas = m_Internal.Overlay;
 
-                overlayCanvas.alpha = Mathf.Clamp01(overlayCanvas.alpha - Time.deltaTime*2.0f);
+                overlayCanvas.alpha = Mathf.Clamp01(overlayCanvas.alpha - Time.deltaTime * 2.0f);
 
-                if (overlayCanvas.alpha == 0.0f)
+                if (overlayCanvas.alpha <= 0.0f)
                 {
-                    m_OverlayVisible = false;
-                    m_Internal.m_Overlay.gameObject.SetActive(false);
+                    OverlayVisible = false;
+                    m_Internal.Overlay.gameObject.SetActive(false);
                 }
             }
 
-            if (m_Internal.m_PasswordDialog.gameObject.activeInHierarchy && m_Internal.m_PasswordInputField.text != "" &&
-                Input.GetKeyDown("enter"))
+            if (m_Internal.PasswordDialog.gameObject.activeInHierarchy
+                && m_Internal.PasswordInputField.text != ""
+                && Input.GetKeyDown("enter"))
             {
                 OnPasswordDialogOkButtonClicked();
             }
@@ -2291,21 +2313,21 @@ namespace Paroxe.PdfRenderer
             EnsureValidPageContainerPosition();
 
             if (m_PageFitting != m_PreviousPageFitting)
-            {
                 AdjustZoomToPageFitting(m_PageFitting, m_NormalPageSizes[0]);
-            }
 
-            if (!Mathf.Approximately(m_ZoomFactor, m_ZoomToGo))
+            if (Math.Abs(m_ZoomFactor - m_ZoomToGo) > 0.001f)
             {
-                m_ZoomFactor = Mathf.Lerp(m_ZoomFactor, m_ZoomToGo, Time.deltaTime*15.0f);
-                m_ZoomFactor = Mathf.Clamp(m_ZoomFactor, m_MinZoomFactor, m_MaxZoomFactor);
+	            m_ZoomToGo = Mathf.Clamp(m_ZoomToGo, m_MinZoomFactor, m_MaxZoomFactor);
+	            m_ZoomFactor = Mathf.Lerp(m_ZoomFactor, m_ZoomToGo, Time.deltaTime * 15.0f);
 
                 m_UpdateChangeDelay = m_DelayAfterZoomingBeforeUpdate;
             }
             else
-                m_ZoomFactor = m_ZoomToGo;
+            {
+	            m_ZoomFactor = m_ZoomToGo;
+            }
 
-            bool zoomHasChanged = (m_PreviousZoom != m_ZoomFactor && m_PreviousZoom != 0.0f);
+            bool zoomHasChanged = m_PreviousZoom != 0.0f && Math.Abs(m_PreviousZoom - m_ZoomFactor) > float.Epsilon;
 
             if (m_PreviousZoom == 0.0f)
             {
@@ -2321,18 +2343,18 @@ namespace Paroxe.PdfRenderer
                 ComputePageOffsets();
                 UpdatePagesPlacement();
 
-                m_Internal.m_PageContainer.sizeDelta = GetDocumentSize();
+                m_Internal.PageContainer.sizeDelta = GetDocumentSize();
 
-                float newDocumentWidthRatio = m_Internal.m_PageContainer.sizeDelta.x / oldDocumentSize.x;
-                float newDocumentHeightRatio = m_Internal.m_PageContainer.sizeDelta.y / oldDocumentSize.y;
+                float newDocumentWidthRatio = m_Internal.PageContainer.sizeDelta.x / oldDocumentSize.x;
+                float newDocumentHeightRatio = m_Internal.PageContainer.sizeDelta.y / oldDocumentSize.y;
 
-                float deltaOffsetY = (m_Internal.m_PageContainer.anchoredPosition.y + m_ZoomPosition.y) *
-                                     newDocumentHeightRatio - m_Internal.m_PageContainer.anchoredPosition.y - m_ZoomPosition.y;
+                float deltaOffsetY = (m_Internal.PageContainer.anchoredPosition.y + m_ZoomPosition.y) *
+                                     newDocumentHeightRatio - m_Internal.PageContainer.anchoredPosition.y - m_ZoomPosition.y;
 
-                float deltaOffsetX = (m_Internal.m_PageContainer.anchoredPosition.x + m_ZoomPosition.x) *
-                                     newDocumentWidthRatio - m_Internal.m_PageContainer.anchoredPosition.x - m_ZoomPosition.x;
+                float deltaOffsetX = (m_Internal.PageContainer.anchoredPosition.x + m_ZoomPosition.x) *
+                                     newDocumentWidthRatio - m_Internal.PageContainer.anchoredPosition.x - m_ZoomPosition.x;
 
-                m_Internal.m_PageContainer.anchoredPosition += Vector2.up * deltaOffsetY + Vector2.right * deltaOffsetX;
+                m_Internal.PageContainer.anchoredPosition += Vector2.up * deltaOffsetY + Vector2.right * deltaOffsetX;
 
                 UpdateScrollBarVisibility();
 
@@ -2347,30 +2369,29 @@ namespace Paroxe.PdfRenderer
 
             m_CurrentPageRange = GetVisiblePageRange();
 
-            if (!m_Internal.m_PageInputField.isFocused)
+            if (!m_Internal.PageInputField.isFocused)
             {
                 int p = GetMostVisiblePageIndex() + 1;
-                m_Internal.m_PageInputField.text = p.ToString();
+                m_Internal.PageInputField.text = p.ToString();
+
                 SetPageCountLabel(p, m_PageCount);
             }
 
-            if ((!oldPageRange.Equals(m_CurrentPageRange) && m_CurrentPageRange.IsValid) 
-                || (zoomHasChanged && m_CurrentPageRange.IsValid))
+            if (!oldPageRange.Equals(m_CurrentPageRange) && m_CurrentPageRange.IsValid
+                || zoomHasChanged && m_CurrentPageRange.IsValid)
             {
                 float scale = Mathf.Min(m_ZoomToGo, m_MaxZoomFactorTextureQuality);
 
                 PDFPageRange.UpdatePageAgainstRanges(oldPageRange, m_CurrentPageRange, m_Document, m_PageTextureHolders, m_RenderSettings, scale, this, m_NormalPageSizes);
             }
 
-
-
             int mostVisible = GetMostVisiblePageIndex();
+
             if (m_PreviousMostVisiblePage != mostVisible)
             {
                 NotifyCurrentPageChanged(m_PreviousMostVisiblePage, mostVisible);
 
                 m_PreviousMostVisiblePage = GetMostVisiblePageIndex();
-                
             }
 
             if (!oldPageRange.Equals(m_CurrentPageRange))
@@ -2378,7 +2399,7 @@ namespace Paroxe.PdfRenderer
                 AdjustCurrentSearchResultDisplayed();
             }
 
-            if (m_PreviousZoomToGo != m_ZoomToGo)
+            if (Math.Abs(m_PreviousZoomToGo - m_ZoomToGo) > float.Epsilon)
             {
                 NotifyZoomChanged(m_PreviousZoomToGo, m_ZoomToGo);
             }
@@ -2394,15 +2415,15 @@ namespace Paroxe.PdfRenderer
                     for (int i = m_CurrentPageRange.m_From; i < m_CurrentPageRange.m_To; ++i)
                     {
 #if UNITY_WEBGL
-                        m_PageTextureHolders[i].m_Visible = true;
+                        m_PageTextureHolders[i].Visible = true;
 
-                        if (m_PageTextureHolders[i].m_RenderingStarted)
+                        if (m_PageTextureHolders[i].RenderingStarted)
                             continue;
 
                         int w = (int)(m_NormalPageSizes[i].x * Mathf.Min(m_ZoomToGo, m_MaxZoomFactorTextureQuality));
                         int h = (int)(m_NormalPageSizes[i].y * Mathf.Min(m_ZoomToGo, m_MaxZoomFactorTextureQuality));
 
-                        m_PageTextureHolders[i].m_RenderingStarted = true;
+                        m_PageTextureHolders[i].RenderingStarted = true;
 
                         StartCoroutine(UpdatePageRangeTextures(i, w, h));
 #else
@@ -2412,7 +2433,6 @@ namespace Paroxe.PdfRenderer
                             m_PageTextureHolders[i].Texture = null;
 
                             Destroy(tex);
-                            Resources.UnloadUnusedAssets();
                         }
 
                         int w = (int)(m_Document.GetPageWidth(i) * Mathf.Min(m_ZoomToGo, m_MaxZoomFactorTextureQuality));
@@ -2420,9 +2440,13 @@ namespace Paroxe.PdfRenderer
 
                         if (m_Renderer == null)
                             m_Renderer = new PDFRenderer();
-                        Texture2D newTex = m_Renderer.RenderPageToTexture(m_Document.GetPage(i), w, h, this, m_RenderSettings);
 
-                        m_PageTextureHolders[i].Texture = newTex;
+                        using (PDFPage page = m_Document.GetPage(i))
+                        {
+	                        Texture2D newTex = m_Renderer.RenderPageToTexture(page, w, h, this, m_RenderSettings);
+
+	                        m_PageTextureHolders[i].Texture = newTex;
+                        }
 #endif
                     }
                 }
@@ -2431,7 +2455,7 @@ namespace Paroxe.PdfRenderer
             m_PreviousZoom = m_ZoomFactor;
             m_PreviousZoomToGo = m_ZoomToGo;
             m_PreviousPageFitting = m_PageFitting;
-            
+
 
             if (m_ThumbnailsViewer.gameObject.activeInHierarchy)
                 m_ThumbnailsViewer.DoUpdate();
@@ -2440,7 +2464,7 @@ namespace Paroxe.PdfRenderer
         }
 
 #if UNITY_WEBGL
-        IEnumerator UpdatePageRangeTextures(int pageIndex, int w, int h)
+        private IEnumerator UpdatePageRangeTextures(int pageIndex, int w, int h)
         {
             PDFJS_Promise<PDFPage> pagePromise = m_Document.GetPageAsync(pageIndex);
 
@@ -2451,39 +2475,37 @@ namespace Paroxe.PdfRenderer
             {
                 PDFJS_Promise<Texture2D> renderPromise = PDFRenderer.RenderPageToTextureAsync(pagePromise.Result, w, h);
 
-                m_PageTextureHolders[pageIndex].m_RenderingPromise = renderPromise;
+                m_PageTextureHolders[pageIndex].RenderingPromise = renderPromise;
 
                 while (!renderPromise.HasFinished)
                     yield return null;
 
-                m_PageTextureHolders[pageIndex].m_RenderingPromise = null;
-                m_PageTextureHolders[pageIndex].m_RenderingStarted = false;
+                m_PageTextureHolders[pageIndex].RenderingPromise = null;
+                m_PageTextureHolders[pageIndex].RenderingStarted = false;
 
                 if (renderPromise.HasSucceeded)
                 {
                     if (m_PageTextureHolders[pageIndex].Texture != null && m_PageTextureHolders[pageIndex].Texture != renderPromise.Result)
                     {
-                        DestroyImmediate(m_PageTextureHolders[pageIndex].Texture);
-                        Resources.UnloadAsset(m_PageTextureHolders[pageIndex].Texture);
+                        Destroy(m_PageTextureHolders[pageIndex].Texture);
                         m_PageTextureHolders[pageIndex].Texture = null;
                     }
 
-                    if (m_PageTextureHolders[pageIndex].m_Visible)
+                    if (m_PageTextureHolders[pageIndex].Visible)
                     {
                         m_PageTextureHolders[pageIndex].Texture = renderPromise.Result;
                     }
                     else
                     {
-                        DestroyImmediate(renderPromise.Result);
-                        Resources.UnloadAsset(renderPromise.Result);
+                        Destroy(renderPromise.Result);
                         renderPromise.Result = null;
                     }
                 }
             }
             else
             {
-                m_PageTextureHolders[pageIndex].m_RenderingPromise = null;
-                m_PageTextureHolders[pageIndex].m_RenderingStarted = false;
+                m_PageTextureHolders[pageIndex].RenderingPromise = null;
+                m_PageTextureHolders[pageIndex].RenderingStarted = false;
             }
         }
 #endif
@@ -2500,14 +2522,16 @@ namespace Paroxe.PdfRenderer
 
             foreach (PDFPageTextureHolder holder in m_PageTextureHolders)
             {
-                (holder.m_Page.transform as RectTransform).sizeDelta = m_PageSizes[holder.m_PageIndex];
+                RectTransform holderRectTransform = (RectTransform)holder.Page.transform;
+
+                holderRectTransform.sizeDelta = m_PageSizes[holder.PageIndex];
                 holder.RefreshTexture();
 
-                Vector3 newPosition = (holder.m_Page.transform as RectTransform).anchoredPosition3D;
+                Vector3 newPosition = holderRectTransform.anchoredPosition3D;
                 newPosition.x = 0;
-                newPosition.y = -m_PageOffsets[holder.m_PageIndex];
+                newPosition.y = -m_PageOffsets[holder.PageIndex];
                 newPosition.z = 0;
-                (holder.m_Page.transform as RectTransform).anchoredPosition3D = newPosition;
+                holderRectTransform.anchoredPosition3D = newPosition;
             }
         }
 
@@ -2518,69 +2542,89 @@ namespace Paroxe.PdfRenderer
 
             if (Application.isPlaying)
             {
-                vScrollVisible = (m_Internal.m_PageContainer.sizeDelta.y > m_Internal.m_Viewport.rect.size.y);
-                hScrollVisible = (m_Internal.m_PageContainer.sizeDelta.x > m_Internal.m_Viewport.rect.size.x);
+                Vector2 pageContainerSizeDelta = m_Internal.PageContainer.sizeDelta;
+                Vector2 viewportRectSize = m_Internal.Viewport.rect.size;
+
+                vScrollVisible = pageContainerSizeDelta.y > viewportRectSize.y;
+                hScrollVisible = pageContainerSizeDelta.x > viewportRectSize.x;
             }
 
             vScrollVisible = vScrollVisible && m_ShowVerticalScrollBar;
             hScrollVisible = hScrollVisible && m_ShowHorizontalScrollBar;
 
+            if (m_ViewportScrollRect == null)
+                m_ViewportScrollRect = m_Internal.Viewport.GetComponent<ScrollRect>();
+
+            if (m_HorizontalScrollBar == null)
+                m_HorizontalScrollBar = m_Internal.HorizontalScrollBar.GetComponent<Scrollbar>();
+
+            if (m_VerticalScrollBar == null)
+                m_VerticalScrollBar = m_Internal.VerticalScrollBar.GetComponent<Scrollbar>();
+
             if (!hScrollVisible)
             {
-                m_Internal.m_Viewport.offsetMin = new Vector2(m_Internal.m_Viewport.offsetMin.x, 0.0f);
+                m_Internal.Viewport.offsetMin = new Vector2(m_Internal.Viewport.offsetMin.x, 0.0f);
 
-                m_Internal.m_Viewport.GetComponent<ScrollRect>().horizontalScrollbar = null;
-                m_Internal.m_HorizontalScrollBar.gameObject.SetActive(false);
+                if (m_ViewportScrollRect.horizontalScrollbar != null)
+				{
+                    m_ViewportScrollRect.horizontalScrollbar = null;
+                    m_Internal.HorizontalScrollBar.gameObject.SetActive(false);
+                }
             }
             else
             {
-                m_Internal.m_Viewport.offsetMin = new Vector2(m_Internal.m_Viewport.offsetMin.x, 20.0f);
+                m_Internal.Viewport.offsetMin = new Vector2(m_Internal.Viewport.offsetMin.x, 20.0f);
 
-                m_Internal.m_Viewport.GetComponent<ScrollRect>().horizontalScrollbar = m_Internal.m_HorizontalScrollBar.GetComponent<Scrollbar>();
-                m_Internal.m_HorizontalScrollBar.gameObject.SetActive(true);
+                if (m_ViewportScrollRect.horizontalScrollbar != m_HorizontalScrollBar)
+				{
+                    m_ViewportScrollRect.horizontalScrollbar = m_HorizontalScrollBar;
+                    m_Internal.HorizontalScrollBar.gameObject.SetActive(true);
+                }
             }
 
             if (!vScrollVisible)
             {
-                m_Internal.m_Viewport.offsetMax = new Vector2(0.0f, m_Internal.m_Viewport.offsetMax.y);
+                m_Internal.Viewport.offsetMax = new Vector2(0.0f, m_Internal.Viewport.offsetMax.y);
 
-                m_Internal.m_Viewport.GetComponent<ScrollRect>().verticalScrollbar = null;
-                m_Internal.m_VerticalScrollBar.gameObject.SetActive(false);
+                if (m_ViewportScrollRect.verticalScrollbar != null)
+				{
+                    m_ViewportScrollRect.verticalScrollbar = null;
+                    m_Internal.VerticalScrollBar.gameObject.SetActive(false);
+                }
             }
             else
             {
-                m_Internal.m_Viewport.offsetMax = new Vector2(-20.0f, m_Internal.m_Viewport.offsetMax.y);
+                m_Internal.Viewport.offsetMax = new Vector2(-20.0f, m_Internal.Viewport.offsetMax.y);
 
-                m_Internal.m_Viewport.GetComponent<ScrollRect>().verticalScrollbar = m_Internal.m_VerticalScrollBar.GetComponent<Scrollbar>();
-                m_Internal.m_VerticalScrollBar.gameObject.SetActive(true);
+                if (m_ViewportScrollRect.verticalScrollbar != m_VerticalScrollBar)
+				{
+                    m_ViewportScrollRect.verticalScrollbar = m_VerticalScrollBar;
+                    m_Internal.VerticalScrollBar.gameObject.SetActive(true);
+                }
             }
 
             if (hScrollVisible && vScrollVisible)
             {
-                m_Internal.m_VerticalScrollBar.offsetMin = new Vector2(m_Internal.m_VerticalScrollBar.offsetMin.x, 19.0f);
-                m_Internal.m_HorizontalScrollBar.offsetMax = new Vector2(-19.0f,
-                    m_Internal.m_HorizontalScrollBar.offsetMax.y);
+                m_Internal.VerticalScrollBar.offsetMin = new Vector2(m_Internal.VerticalScrollBar.offsetMin.x, 19.0f);
+                m_Internal.HorizontalScrollBar.offsetMax = new Vector2(-19.0f, m_Internal.HorizontalScrollBar.offsetMax.y);
 
-                if (!m_Internal.m_ScrollCorner.gameObject.activeInHierarchy)
-                    m_Internal.m_ScrollCorner.gameObject.SetActive(true);
+                if (!m_Internal.ScrollCorner.gameObject.activeInHierarchy)
+                    m_Internal.ScrollCorner.gameObject.SetActive(true);
             }
             else if (!hScrollVisible)
             {
-                m_Internal.m_VerticalScrollBar.offsetMin = new Vector2(m_Internal.m_VerticalScrollBar.offsetMin.x, 0.0f);
+                m_Internal.VerticalScrollBar.offsetMin = new Vector2(m_Internal.VerticalScrollBar.offsetMin.x, 0.0f);
 
-                if (m_Internal.m_ScrollCorner.gameObject.activeInHierarchy)
-                    m_Internal.m_ScrollCorner.gameObject.SetActive(false);
+                if (m_Internal.ScrollCorner.gameObject.activeInHierarchy)
+                    m_Internal.ScrollCorner.gameObject.SetActive(false);
             }
             else
             {
-                m_Internal.m_HorizontalScrollBar.offsetMax = new Vector2(0.0f,
-                    m_Internal.m_HorizontalScrollBar.offsetMax.y);
+                m_Internal.HorizontalScrollBar.offsetMax = new Vector2(0.0f, m_Internal.HorizontalScrollBar.offsetMax.y);
 
-                if (m_Internal.m_ScrollCorner.gameObject.activeInHierarchy)
-                    m_Internal.m_ScrollCorner.gameObject.SetActive(false);
+                if (m_Internal.ScrollCorner.gameObject.activeInHierarchy)
+                    m_Internal.ScrollCorner.gameObject.SetActive(false);
             }
-
-
         }
 
         private void ZoomCommon(Vector2 zoomPosition, bool zoomIn, bool useSpecificZoom = false, float specificZoom = 1.0f)
@@ -2599,42 +2643,34 @@ namespace Paroxe.PdfRenderer
                 float step = m_ZoomStep;
 
                 if (m_ZoomToGo >= 2.0f)
-                {
                     step *= 2.0f;
-                }
+
                 if (m_ZoomToGo >= 4.0f)
-                {
                     step *= 2.0f;
-                }
+
+                float epsilon = m_ZoomStep * 0.125f;
 
                 if (zoomIn)
                 {
                     if (!Mathf.Approximately(Mathf.Floor(m_ZoomToGo * (1 / step)), m_ZoomToGo * (1 / step))
-                        && m_ZoomToGo * (1 / step) < Mathf.Floor(m_ZoomToGo * (1 / step)))
+                        && m_ZoomToGo * (1 / step) <= Mathf.Floor(m_ZoomToGo * (1 / step)))
                     {
                         m_ZoomToGo = Mathf.Floor(m_ZoomToGo * (1 / step)) * step;
                     }
-                    else
-                    {
-                        m_ZoomToGo = Mathf.Clamp(Mathf.Floor((m_ZoomToGo + step) * (1 / step)) * step, m_MinZoomFactor,
-                            m_MaxZoomFactor);
-                    }
+
+                    m_ZoomToGo = Mathf.Clamp(Mathf.Floor((m_ZoomToGo + step) * (1 / step) + epsilon) * step, m_MinZoomFactor, m_MaxZoomFactor);
                 }
                 else
                 {
                     if (!Mathf.Approximately(Mathf.Floor(m_ZoomToGo * (1 / step)), m_ZoomToGo * (1 / step))
-                        && m_ZoomToGo * (1 / step) > Mathf.Floor(m_ZoomToGo * (1 / step)))
+                        && m_ZoomToGo * (1 / step) >= Mathf.Floor(m_ZoomToGo * (1 / step)))
                     {
                         m_ZoomToGo = Mathf.Floor(m_ZoomToGo * (1 / step)) * step;
                     }
-                    else
-                    {
-                        m_ZoomToGo = Mathf.Clamp(Mathf.Floor((m_ZoomToGo - step) * (1 / step)) * step, m_MinZoomFactor,
-                            m_MaxZoomFactor);
-                    }
+
+                    m_ZoomToGo = Mathf.Clamp(Mathf.Floor((m_ZoomToGo - step) * (1 / step) + epsilon) * step, m_MinZoomFactor, m_MaxZoomFactor);
                 }
             }
-
 
             m_PageFitting = PageFittingType.Zoom;
         }
@@ -2662,11 +2698,6 @@ namespace Paroxe.PdfRenderer
 #endif
         }
 
-        public PDFDocument GetLoadedDocument()
-        {
-            return m_Document;
-        }
-
         public IList<PDFColoredRect> GetBackgroundColoredRectList(PDFPage page)
         {
 #if !UNITY_WEBGL
@@ -2687,8 +2718,8 @@ namespace Paroxe.PdfRenderer
                             rect = new Rect(
                                 rect.xMin - m_SearchResultPadding.x,
                                 rect.yMin + m_SearchResultPadding.y,
-                                rect.width + 2*m_SearchResultPadding.x,
-                                rect.height + 2*m_SearchResultPadding.y);
+                                rect.width + 2 * m_SearchResultPadding.x,
+                                rect.height + 2 * m_SearchResultPadding.y);
                             coloredRectList.Add(new PDFColoredRect(rect, m_SearchResultColor));
                         }
                     }
@@ -2703,10 +2734,15 @@ namespace Paroxe.PdfRenderer
 
         public void ZoomOnParagraph(PDFViewerPage viewerPage, Rect pageRect)
         {
+            if (m_Document == null || !m_Document.IsValid)
+                return;
+
 #if !UNITY_WEBGL
             Vector3[] pageCorners = new Vector3[4];
 
-            (viewerPage.transform as RectTransform).GetWorldCorners(pageCorners);
+            RectTransform viewerPageTransform = (RectTransform)viewerPage.transform;
+
+            viewerPageTransform.GetWorldCorners(pageCorners);
             Vector2 min = pageCorners[0];
             Vector2 max = pageCorners[0];
             for (int i = 1; i < 4; ++i)
@@ -2721,21 +2757,62 @@ namespace Paroxe.PdfRenderer
                     max.y = pageCorners[i].y;
             }
 
-            Vector2 devicePageSize = (viewerPage.transform as RectTransform).sizeDelta;
-            Rect deviceRect = viewerPage.m_Page.ConvertPageRectToDeviceRect(pageRect, devicePageSize);
+            Vector2 devicePageSize = viewerPageTransform.sizeDelta;
 
-            float deviceRectCenterPosition = deviceRect.max.y + (deviceRect.min - deviceRect.max).y * 0.5f;
+            using (PDFPage page  = m_Document.GetPage(viewerPage.PageIndex))
+			{
+                Rect deviceRect = page.ConvertPageRectToDeviceRect(pageRect, devicePageSize);
 
-            m_Internal.m_PageContainer.anchoredPosition = new Vector2(
-                m_Internal.m_PageContainer.anchoredPosition.x,
-                (m_PageOffsets[viewerPage.m_Page.PageIndex]
-                - m_PageSizes[viewerPage.m_Page.PageIndex].y * 0.5f)
-                + (m_PageSizes[viewerPage.m_Page.PageIndex].y - deviceRectCenterPosition)
-                - m_Internal.m_Viewport.rect.size.y * 0.5f);
+                float deviceRectCenterPosition = deviceRect.max.y + (deviceRect.min - deviceRect.max).y * 0.5f;
+
+                m_Internal.PageContainer.anchoredPosition = new Vector2(
+                    m_Internal.PageContainer.anchoredPosition.x,
+                    m_PageOffsets[page.PageIndex]
+                    - m_PageSizes[page.PageIndex].y * 0.5f
+                    + (m_PageSizes[page.PageIndex].y - deviceRectCenterPosition)
+                    - m_Internal.Viewport.rect.size.y * 0.5f);
+            }
 
             if (m_ZoomToGo < m_ParagraphZoomFactor)
-                ZoomCommon(new Vector2(0.0f, m_Internal.m_Viewport.rect.size.y * 0.5f), true, true, m_ParagraphZoomFactor);
+                ZoomCommon(new Vector2(0.0f, m_Internal.Viewport.rect.size.y * 0.5f), true, true, m_ParagraphZoomFactor);
 #endif
+        }
+
+        protected override void OnTransformParentChanged()
+        {
+            base.OnTransformParentChanged();
+
+            if (gameObject != null)
+                m_Canvas = null;
+        }
+
+        private void CacheCanvas()
+        {
+            if (gameObject == null)
+                return;
+
+            gameObject.GetComponentsInParent(false, m_CanvasList);
+
+            if (m_CanvasList.Count > 0)
+            {
+                // Find the first active and enabled canvas.
+                for (int i = 0; i < m_CanvasList.Count; ++i)
+                {
+                    if (m_CanvasList[i].isActiveAndEnabled)
+                    {
+                        m_Canvas = m_CanvasList[i];
+                        m_GraphicRaycaster = m_Canvas.GetComponent<GraphicRaycaster>();
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                m_Canvas = null;
+                m_GraphicRaycaster = null;
+            }
+
+            m_CanvasList.Clear();
         }
     }
 }

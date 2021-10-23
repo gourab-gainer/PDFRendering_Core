@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Paroxe.PdfRenderer.Internal;
 
 namespace Paroxe.PdfRenderer
 {
@@ -8,68 +9,64 @@ namespace Paroxe.PdfRenderer
     /// <summary>
     /// Represent a search session within a specific page. To search in entire document use PDFTextPage.Search
     /// </summary>
-    public class PDFSearchHandle : IDisposable
+    public sealed class PDFSearchHandle : IDisposable, ICoordinatedNativeDisposable
     {
         public enum MatchOption
         {
-            NONE = 0x00000000,
-            MATCH_CASE = 0x00000001,
-            MATCH_WHOLE_WORD = 0x00000002,
-            MATCH_CASE_AND_WHOLE_WORD = 0x00000003
+	        NONE = 0x00000000,
+	        MATCH_CASE = 0x00000001,
+	        MATCH_WHOLE_WORD = 0x00000002,
+	        MATCH_CASE_AND_WHOLE_WORD = 0x00000003
         }
 
-        private bool m_Disposed;
         private IntPtr m_NativePointer;
         private PDFTextPage m_TextPage;
 
-        public PDFSearchHandle(PDFTextPage textPage, byte[] findWhatUnicode, int startIndex,
-            MatchOption flags = MatchOption.NONE)
+        public PDFSearchHandle(PDFTextPage textPage, byte[] findWhatUnicode, int startIndex, MatchOption flags = MatchOption.NONE)
         {
             if (textPage == null)
-                throw new NullReferenceException();
+                throw new ArgumentNullException("textPage");
             if (startIndex < 0)
-                throw new ArgumentOutOfRangeException();
-
-            PDFLibrary.AddRef("PDFSearchHandle");
+                throw new ArgumentOutOfRangeException("startIndex");
 
             m_TextPage = textPage;
+
+            PDFLibrary.Instance.DisposeCoordinator.EnsureNativeLibraryIsInitialized();
 
             IntPtr unmanagedPointer = Marshal.AllocHGlobal(findWhatUnicode.Length);
             Marshal.Copy(findWhatUnicode, 0, unmanagedPointer, findWhatUnicode.Length);
 
-            m_NativePointer = FPDFText_FindStart(textPage.NativePointer, unmanagedPointer, (int) flags, startIndex);
+            lock (PDFLibrary.nativeLock)
+            {
+	            m_NativePointer = NativeMethods.FPDFText_FindStart(textPage.NativePointer, unmanagedPointer, (uint)flags, startIndex);
 
-            Marshal.FreeHGlobal(unmanagedPointer);
+	            Marshal.FreeHGlobal(unmanagedPointer);
+
+                if (m_NativePointer != IntPtr.Zero)
+					PDFLibrary.Instance.DisposeCoordinator.AddReference(this);
+            }
         }
 
         ~PDFSearchHandle()
         {
-            Dispose(false);
+	        Close();
         }
 
         public void Dispose()
         {
-            Dispose(true);
+	        Close();
+
             GC.SuppressFinalize(this);
         }
 
-        protected virtual void Dispose(bool disposing)
+        private void Close()
         {
-            if (!m_Disposed)
-            {
-                lock (PDFLibrary.nativeLock)
-                {
-                    if (m_NativePointer != IntPtr.Zero)
-                    {
-                        FPDFText_FindClose(m_NativePointer);
-                        m_NativePointer = IntPtr.Zero;
-                    }
-                }
+	        if (m_NativePointer == IntPtr.Zero)
+		        return;
 
-                PDFLibrary.RemoveRef("PDFSearchHandle");
+	        PDFLibrary.Instance.DisposeCoordinator.RemoveReference(this);
 
-                m_Disposed = true;
-            }
+	        m_NativePointer = IntPtr.Zero;
         }
 
         public IntPtr NativePointer
@@ -101,11 +98,9 @@ namespace Paroxe.PdfRenderer
         {
             if (m_NativePointer != IntPtr.Zero)
             {
-                while (FPDFText_FindNext(m_NativePointer))
+                while (NativeMethods.FPDFText_FindNext(m_NativePointer))
                     yield return new PDFSearchResult(
-                        m_TextPage.PageIndex,
-                        FPDFText_GetSchResultIndex(m_NativePointer),
-                        FPDFText_GetSchCount(m_NativePointer));
+                        m_TextPage.PageIndex, NativeMethods.FPDFText_GetSchResultIndex(m_NativePointer), NativeMethods.FPDFText_GetSchCount(m_NativePointer));
             }
         }
 
@@ -115,11 +110,9 @@ namespace Paroxe.PdfRenderer
         /// <returns></returns>
         public PDFSearchResult FindNext()
         {
-            if (FPDFText_FindNext(m_NativePointer))
+            if (NativeMethods.FPDFText_FindNext(m_NativePointer))
                 return new PDFSearchResult(
-                    m_TextPage.PageIndex,
-                    FPDFText_GetSchResultIndex(m_NativePointer),
-                    FPDFText_GetSchCount(m_NativePointer));
+                    m_TextPage.PageIndex, NativeMethods.FPDFText_GetSchResultIndex(m_NativePointer), NativeMethods.FPDFText_GetSchCount(m_NativePointer));
             return new PDFSearchResult(-1, -1, -1);
         }
 
@@ -129,36 +122,26 @@ namespace Paroxe.PdfRenderer
         /// <returns></returns>
         public PDFSearchResult FindPrevious()
         {
-            if (FPDFText_FindPrev(m_NativePointer))
+            if (NativeMethods.FPDFText_FindPrev(m_NativePointer))
                 return new PDFSearchResult(
-                    m_TextPage.PageIndex,
-                    FPDFText_GetSchResultIndex(m_NativePointer),
-                    FPDFText_GetSchCount(m_NativePointer));
+                    m_TextPage.PageIndex, NativeMethods.FPDFText_GetSchResultIndex(m_NativePointer), NativeMethods.FPDFText_GetSchCount(m_NativePointer));
             return new PDFSearchResult(-1, -1, -1);
         }
 
-#region NATIVE
+        IntPtr ICoordinatedNativeDisposable.NativePointer
+        {
+	        get { return m_NativePointer; }
+        }
 
+        ICoordinatedNativeDisposable ICoordinatedNativeDisposable.NativeParent
+        {
+	        get { return m_TextPage; }
+        }
 
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern IntPtr FPDFText_FindStart(IntPtr text_page, IntPtr buffer, int flags, int start_index);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void FPDFText_FindClose(IntPtr handle);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern bool FPDFText_FindNext(IntPtr handle);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern bool FPDFText_FindPrev(IntPtr handle);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern int FPDFText_GetSchCount(IntPtr handle);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern int FPDFText_GetSchResultIndex(IntPtr handle);
-
-#endregion
+        Action<IntPtr> ICoordinatedNativeDisposable.GetDisposeMethod()
+        {
+	        return NativeMethods.FPDFText_FindClose;
+        }
     }
 
 #endif

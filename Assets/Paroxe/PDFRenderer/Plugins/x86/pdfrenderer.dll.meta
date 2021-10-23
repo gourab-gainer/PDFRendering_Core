@@ -1,102 +1,57 @@
 fileFormatVersion: 2
 guid: 30ae5bca0e715a542ab52d676998f40d
 PluginImporter:
-  externalObjects: {}
-  serializedVersion: 2
+  serializedVersion: 1
   iconMap: {}
   executionOrder: {}
-  defineConstraints: []
   isPreloaded: 0
-  isOverridable: 0
-  isExplicitlyReferenced: 0
-  validateReferences: 1
   platformData:
-  - first:
-      : Any
-    second:
-      enabled: 0
-      settings:
-        Exclude Editor: 0
-        Exclude Linux64: 1
-        Exclude OSXUniversal: 1
-        Exclude WebGL: 1
-        Exclude Win: 0
-        Exclude Win64: 1
-  - first:
-      : Linux
-    second:
-      enabled: 1
-      settings:
-        CPU: x86
-  - first:
-      : LinuxUniversal
-    second:
-      enabled: 0
-      settings:
-        CPU: x86
-  - first:
-      : OSXIntel
-    second:
-      enabled: 1
-      settings:
-        CPU: AnyCPU
-  - first:
-      : OSXIntel64
-    second:
-      enabled: 0
-      settings:
-        CPU: None
-  - first:
-      Android: Android
-    second:
+    Android:
       enabled: 0
       settings:
         CPU: AnyCPU
-  - first:
-      Any: 
-    second:
+    Any:
       enabled: 0
       settings: {}
-  - first:
-      Editor: Editor
-    second:
+    Editor:
       enabled: 1
       settings:
         CPU: x86
         DefaultValueInitialized: true
         OS: Windows
-  - first:
-      Standalone: Linux64
-    second:
+    Linux:
+      enabled: 1
+      settings:
+        CPU: x86
+    Linux64:
       enabled: 0
       settings:
         CPU: None
-  - first:
-      Standalone: OSXUniversal
-    second:
+    LinuxUniversal:
       enabled: 0
       settings:
         CPU: x86
-  - first:
-      Standalone: Win
-    second:
+    OSXIntel:
       enabled: 1
       settings:
         CPU: AnyCPU
-  - first:
-      Standalone: Win64
-    second:
+    OSXIntel64:
       enabled: 0
       settings:
         CPU: None
-  - first:
-      WebGL: WebGL
-    second:
+    OSXUniversal:
       enabled: 0
-      settings: {}
-  - first:
-      Windows Store Apps: WindowsStoreApps
-    second:
+      settings:
+        CPU: x86
+    Win:
+      enabled: 1
+      settings:
+        CPU: AnyCPU
+    Win64:
+      enabled: 0
+      settings:
+        CPU: None
+    WindowsStoreApps:
       enabled: 0
       settings:
         CPU: AnyCPU
@@ -104,9 +59,7 @@ PluginImporter:
         PlaceholderPath: 
         SDK: AnySDK
         ScriptingBackend: AnyScriptingBackend
-  - first:
-      iPhone: iOS
-    second:
+    iOS:
       enabled: 0
       settings:
         CompileFlags: 

@@ -1,54 +1,53 @@
 ﻿using System;
-using System.Runtime.InteropServices;
 
 namespace Paroxe.PdfRenderer.Internal
 {
-    public class PDFBitmap : IDisposable
+#if !UNITY_WEBGL || UNITY_EDITOR
+    public sealed class PDFBitmap : IDisposable
     {
-        private bool m_Disposed;
-        private IntPtr m_NativePointer;
+	    public enum BitmapFormat
+	    {
+			Unknown = 0,
+			Gray = 1,   // Gray scale bitmap, one byte per pixel.
+			BGR = 2,    // 3 bytes per pixel, byte order: blue, green, red.
+            BGRx = 3,   // 4 bytes per pixel, byte order: blue, green, red, unused.
+            BGRA = 4    // 4 bytes per pixel, byte order: blue, green, red, alpha.
+        }
+
+	    private IntPtr m_NativePointer;
         private readonly int m_Width;
         private readonly int m_Height;
         private readonly bool m_UseAlphaChannel;
 
         public PDFBitmap(int width, int height, bool useAlphaChannel)
         {
-            PDFLibrary.AddRef("PDFBitmap");
-
-            m_Width = width;
+	        m_Width = width;
             m_Height = height;
             m_UseAlphaChannel = useAlphaChannel;
 
-            m_NativePointer = FPDFBitmap_Create(m_Width, m_Height, useAlphaChannel);
+            m_NativePointer = NativeMethods.FPDFBitmap_Create(m_Width, m_Height, useAlphaChannel);
         }
 
         ~PDFBitmap()
         {
-            Dispose(false);
+	        Close();
         }
 
         public void Dispose()
         {
-            Dispose(true);
+	        Close();
+
             GC.SuppressFinalize(this);
         }
 
-        protected virtual void Dispose(bool disposing)
+        private void Close()
         {
-            if (!m_Disposed)
-            {
-                lock (PDFLibrary.nativeLock)
-                {
-                    if (m_NativePointer != IntPtr.Zero)
-                        FPDFBitmap_Destroy(m_NativePointer);
-                    m_NativePointer = IntPtr.Zero;
-                }
+	        if (m_NativePointer == IntPtr.Zero)
+		        return;
 
+	        NativeMethods.FPDFBitmap_Destroy(m_NativePointer);
 
-                PDFLibrary.RemoveRef("PDFBitmap");
-
-                m_Disposed = true;
-            }
+	        m_NativePointer = IntPtr.Zero;
         }
 
         public int Width
@@ -64,6 +63,11 @@ namespace Paroxe.PdfRenderer.Internal
         public bool UseAlphaChannel
         {
             get { return m_UseAlphaChannel; }
+        }
+
+        public BitmapFormat Format
+        {
+	        get { return NativeMethods.FPDFBitmap_GetFormat(m_NativePointer); }
         }
 
         public IntPtr NativePointer
@@ -83,39 +87,18 @@ namespace Paroxe.PdfRenderer.Internal
 
         public void FillRect(int left, int top, int width, int height, int color)
         {
-            FPDFBitmap_FillRect(m_NativePointer, left, top, width, height, color);
+	        NativeMethods.FPDFBitmap_FillRect(m_NativePointer, left, top, width, height, color);
         }
 
         public IntPtr GetBuffer()
         {
-            return FPDFBitmap_GetBuffer(m_NativePointer);
+            return NativeMethods.FPDFBitmap_GetBuffer(m_NativePointer);
         }
 
         public int GetStride()
         {
-            return FPDFBitmap_GetStride(m_NativePointer);
+            return NativeMethods.FPDFBitmap_GetStride(m_NativePointer);
         }
-
-        #region NATIVE
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern IntPtr FPDFBitmap_Create(int width, int height, bool alpha);
-
-        //[DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        //private static extern IntPtr FPDFBitmap_CreateEx(int width, int height, int format, IntPtr firstScan, int stride);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void FPDFBitmap_Destroy(IntPtr bitmap);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void FPDFBitmap_FillRect(IntPtr bitmap, int left, int top, int width, int height, int color);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern IntPtr FPDFBitmap_GetBuffer(IntPtr bitmap);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern int FPDFBitmap_GetStride(IntPtr bitmap);
-
-        #endregion
     }
+#endif
 }

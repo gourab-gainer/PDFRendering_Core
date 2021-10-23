@@ -15,7 +15,7 @@ namespace Paroxe.PdfRenderer.Internal
             string path = AssetDatabase.GetAssetPath(Selection.activeObject);
             string newPath = ConvertToInternalPath(path);
 
-            PDFAsset numSeq = AssetDatabase.LoadAssetAtPath(newPath, typeof (PDFAsset)) as PDFAsset;
+            PDFAsset numSeq = AssetDatabase.LoadAssetAtPath(newPath, typeof(PDFAsset)) as PDFAsset;
             bool loaded = (numSeq != null);
 
             if (!loaded)

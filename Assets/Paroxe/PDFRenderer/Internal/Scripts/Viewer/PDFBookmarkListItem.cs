@@ -6,33 +6,51 @@ using UnityEngine.UI;
 
 namespace Paroxe.PdfRenderer.Internal.Viewer
 {
-    public class PDFBookmarkListItem : UIBehaviour
+	public class PDFBookmarkListItem : UIBehaviour
     {
-        public Sprite m_CollapseSprite;
-        public Image m_ExpandImage;
-        public Sprite m_ExpandSprite;
-        public Image m_Highlighted;
-        public RectTransform m_HorizontalLine;
-        public RectTransform m_Internal;
-        public RectTransform m_NextSibling;
-        public Text m_Title;
-        public RectTransform m_VerticalLine;
-        public RectTransform m_VerticalLine2;
+        [SerializeField]
+        private Sprite m_CollapseSprite;
+        [SerializeField]
+        private Image m_ExpandImage;
+        [SerializeField]
+        private Sprite m_ExpandSprite;
+        [SerializeField]
+        private Image m_Highlighted;
+        [SerializeField]
+        private RectTransform m_HorizontalLine;
+        [SerializeField]
+        private RectTransform m_Internal;
+        [SerializeField]
+        private RectTransform m_NextSibling;
+        [SerializeField]
+        private Text m_Title;
+        [SerializeField]
+        private RectTransform m_VerticalLine;
+        [SerializeField]
+        private RectTransform m_VerticalLine2;
 
 #if !UNITY_WEBGL
         private CanvasGroup m_CanvasGroup;
         private List<PDFBookmarkListItem> m_ChildrenItems;
         private bool m_Expanded;
         private bool m_Initialized;
-        private bool m_IsLastSibling = false;
-        private float m_LastClickTimestamp = 0.0f;
+        private bool m_IsLastSibling;
+        private float m_LastClickTimestamp;
         private LayoutElement m_LayoutElement;
         private PDFBookmark m_PDFBookmark;
-        private RectTransform m_RectTransform;
-        private int m_SizeAdjusted = 0;
+        private int m_SizeAdjusted;
+        private PDFBookmarksViewer m_BookmarksViewer;
 
-        public void Initilize(PDFBookmark bookmark, int indent, bool lastSibling)
+        private RectTransform RectTransform
         {
+	        get { return (RectTransform)transform; }
+        }
+
+        public void Initialize(PDFBookmarksViewer bookmarksViewer, PDFBookmark bookmark, int indent, bool lastSibling)
+        {
+	        m_BookmarksViewer = bookmarksViewer;
+	        m_BookmarksViewer.RegisterItem(this);
+
             m_ChildrenItems = new List<PDFBookmarkListItem>();
 
             m_IsLastSibling = lastSibling;
@@ -56,11 +74,10 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
             {
                 m_HorizontalLine.gameObject.SetActive(true);
                 m_HorizontalLine.offsetMin = new Vector2(m_HorizontalLine.offsetMin.x + 6, m_HorizontalLine.offsetMin.y);
-                if (!m_IsLastSibling)
-                {
-                    m_VerticalLine2.gameObject.SetActive(true);
 
-                }
+                if (!m_IsLastSibling)
+	                m_VerticalLine2.gameObject.SetActive(true);
+
                 m_ExpandImage.gameObject.SetActive(false);
             }
 
@@ -75,7 +92,7 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                 PDFBookmarkListItem item = Instantiate(gameObject).GetComponent<PDFBookmarkListItem>();
                 m_ChildrenItems.Add(item);
 
-                RectTransform itemTransform = item.transform as RectTransform;
+                RectTransform itemTransform = (RectTransform)item.transform;
                 itemTransform.SetParent(transform.parent, false);
                 itemTransform.localScale = Vector3.one;
                 itemTransform.anchorMin = new Vector2(0.0f, 1.0f);
@@ -83,21 +100,22 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                 itemTransform.offsetMin = Vector2.zero;
                 itemTransform.offsetMax = Vector2.zero;
 
-                item.Initilize(child, indent + 1, i == m_PDFBookmark.ChildCount - 1);
+                item.Initialize(m_BookmarksViewer, child, indent + 1, i == m_PDFBookmark.ChildCount - 1);
 
                 if (indent == 0)
                 {
-                    StartCoroutine(SetVisible());
+	                m_BookmarksViewer.Viewer.StartCoroutine(SetVisible());
+
                     item.m_CanvasGroup.alpha = 0.0f;
                 }
             }
 
             for (int i = 0; i < m_ChildrenItems.Count - 1; ++i)
             {
-                m_ChildrenItems[i].m_NextSibling = m_ChildrenItems[i + 1].gameObject.transform as RectTransform;
+                m_ChildrenItems[i].m_NextSibling = (RectTransform)m_ChildrenItems[i + 1].gameObject.transform;
             }
 
-            m_Internal.offsetMin = new Vector2(20.0f*indent, m_Internal.offsetMin.y);
+            m_Internal.offsetMin = new Vector2(20.0f * indent, m_Internal.offsetMin.y);
             m_Initialized = true;
             m_SizeAdjusted = 1;
         }
@@ -113,39 +131,32 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                 m_ExpandImage.sprite = m_Expanded ? m_CollapseSprite : m_ExpandSprite;
 
                 foreach (PDFBookmarkListItem child in m_ChildrenItems)
-                {
-                    child.SetState(m_Expanded);
-                }
+	                child.SetState(m_Expanded);
             }
         }
 
         public void OnItemClicked()
         {
             if (Time.fixedTime - m_LastClickTimestamp < 0.5f)
-            {
-                OnExpandButton();
-            }
+	            OnExpandButton();
+
             m_LastClickTimestamp = Time.fixedTime;
 
-            PDFBookmarksViewer booksmarkViewer = GetComponentInParent<PDFBookmarksViewer>();
+            if (m_BookmarksViewer.LastHighlightedImage != null)
+                m_BookmarksViewer.LastHighlightedImage.gameObject.SetActive(false);
 
-            if (booksmarkViewer.m_LastHighlightedImage != null)
-            {
-                booksmarkViewer.m_LastHighlightedImage.gameObject.SetActive(false);
-            }
             m_Highlighted.gameObject.SetActive(true);
-            booksmarkViewer.m_LastHighlightedImage = m_Highlighted;
+            m_BookmarksViewer.LastHighlightedImage = m_Highlighted;
 
-            m_PDFBookmark.ExecuteBookmarkAction();
+            m_PDFBookmark.ExecuteBookmarkAction(m_BookmarksViewer.Viewer);
         }
 
         public void SetState(bool active)
         {
             gameObject.SetActive(active);
+
             if (active)
-            {
-                StartCoroutine(SetVisible());
-            }
+	            m_BookmarksViewer.Viewer.StartCoroutine(SetVisible());
 
             if (m_ChildrenItems.Count > 0)
             {
@@ -156,18 +167,17 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
             if (!active)
             {
                 foreach (PDFBookmarkListItem child in m_ChildrenItems)
-                {
-                    child.SetState(active);
-                }
+	                child.SetState(false);
             }
         }
 
         protected override void OnEnable()
         {
-            m_RectTransform = transform as RectTransform;
-            m_LayoutElement = GetComponent<LayoutElement>();
+            if (m_LayoutElement == null)
+				m_LayoutElement = GetComponent<LayoutElement>();
+            if (m_CanvasGroup == null)
+				m_CanvasGroup = GetComponent<CanvasGroup>();
 
-            m_CanvasGroup = GetComponent<CanvasGroup>();
             if (m_CanvasGroup == null)
             {
                 m_CanvasGroup = gameObject.AddComponent<CanvasGroup>();
@@ -178,30 +188,47 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
             m_CanvasGroup.alpha = 1.0f;
         }
 
+        protected override void OnDestroy()
+        {
+            base.OnDestroy();
+
+            m_PDFBookmark = null;
+            m_ChildrenItems = null;
+
+            if (m_BookmarksViewer != null)
+            {
+                if (m_BookmarksViewer.LastHighlightedImage == this)
+                    m_BookmarksViewer.LastHighlightedImage = null;
+
+                m_BookmarksViewer = null;
+            }
+        }
+
         private IEnumerator SetVisible()
         {
             m_CanvasGroup.alpha = 0.0f;
 
-            yield return new WaitForSeconds(1.0f/60.0f);
+            yield return new WaitForSeconds(1.0f / 60.0f);
 
             m_CanvasGroup.alpha = 1.0f;
         }
 
-        void Update()
+        private void Update()
+        {
+            UpdateItem();
+        }
+
+        public void UpdateItem()
         {
             if (m_Initialized && m_SizeAdjusted == 0)
             {
                 m_LayoutElement.preferredHeight = m_Title.preferredHeight + 20.0f;
 
                 if (m_VerticalLine.gameObject.activeInHierarchy)
-                {
-                    m_VerticalLine.sizeDelta = new Vector2(1.0f, m_LayoutElement.preferredHeight);
-                }
+	                m_VerticalLine.sizeDelta = new Vector2(1.0f, m_LayoutElement.preferredHeight);
 
                 if (!m_PDFBookmark.IsTopLevelBookmark)
-                {
-                    gameObject.SetActive(false);
-                }
+	                gameObject.SetActive(false);
 
                 m_SizeAdjusted = -1;
             }
@@ -215,16 +242,14 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                 m_LayoutElement.preferredHeight = m_Title.preferredHeight + 20.0f;
 
                 if (m_VerticalLine.gameObject.activeInHierarchy)
-                {
-                    m_VerticalLine.sizeDelta = new Vector2(1.0f, m_LayoutElement.preferredHeight);
-                }
+	                m_VerticalLine.sizeDelta = new Vector2(1.0f, m_LayoutElement.preferredHeight);
 
                 if (m_NextSibling != null)
                 {
                     if (m_VerticalLine2.gameObject.activeInHierarchy)
                     {
-                        float newHeight =
-                            Mathf.Abs((m_NextSibling.anchoredPosition - m_RectTransform.anchoredPosition).y);
+                        float newHeight = Mathf.Abs((m_NextSibling.anchoredPosition - RectTransform.anchoredPosition).y);
+
                         m_VerticalLine2.sizeDelta = new Vector2(1.0f, newHeight);
                     }
                 }
@@ -234,9 +259,7 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                 }
 
                 if (m_SizeAdjusted == -1)
-                {
-                    m_SizeAdjusted = -2;
-                }
+	                m_SizeAdjusted = -2;
             }
         }
 #endif

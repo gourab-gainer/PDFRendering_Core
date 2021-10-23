@@ -3,8 +3,8 @@
 namespace Paroxe.PdfRenderer
 {
     /// <summary>
-    /// This interface allow to implement a custome colorec rects provider. For example, PDFViewer inherits
-    /// this class and implements it to provide colorect rects during a search session to the renderer.
+    /// This interface allow to implement custom colored rects provider. For example, PDFViewer inherits
+    /// this class and implements it to provide colored rects during a search session to the renderer.
     /// </summary>
     public interface IPDFColoredRectListProvider
     {

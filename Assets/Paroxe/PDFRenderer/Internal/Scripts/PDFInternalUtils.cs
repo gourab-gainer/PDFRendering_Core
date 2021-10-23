@@ -1,10 +1,11 @@
-﻿using UnityEngine;
+﻿using System.Text;
+using UnityEngine;
 
 namespace Paroxe.PdfRenderer.Internal
 {
     public static class PDFInternalUtils
     {
-        public static float CalculateRectTransformIntersectArea(RectTransform a, RectTransform b)
+	    public static float CalculateRectTransformIntersectArea(RectTransform a, RectTransform b)
         {
             Vector3[] worldCorners = new Vector3[4];
 
@@ -51,12 +52,12 @@ namespace Paroxe.PdfRenderer.Internal
             if (x_overlap <= 0.0f || y_overlap <= 0.0f)
                 return 0.0f;
 
-            return x_overlap*y_overlap;
+            return x_overlap * y_overlap;
         }
 
         public static float CubicEaseIn(float currentTime, float startingValue, float finalValue, float duration)
         {
-            return finalValue*(currentTime /= duration)*currentTime*currentTime + startingValue;
+            return finalValue * (currentTime /= duration) * currentTime * currentTime + startingValue;
         }
     }
 }

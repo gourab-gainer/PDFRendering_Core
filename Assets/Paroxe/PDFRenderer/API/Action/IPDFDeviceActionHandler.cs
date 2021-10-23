@@ -60,7 +60,7 @@ namespace Paroxe.PdfRenderer
         /// Called when the action is unsuported
         /// </summary>
         /// <param name="device"></param>
-        void HandleUnsuportedAction(IPDFDevice device);
+        void HandleUnsupportedAction(IPDFDevice device);
 
         /// <summary>
         /// Called for action that point to an Uri (Universal Resource Identifier)

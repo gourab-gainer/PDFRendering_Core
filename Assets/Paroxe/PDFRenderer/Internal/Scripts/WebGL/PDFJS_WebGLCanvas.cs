@@ -1,5 +1,5 @@
 ﻿using System;
-using System.Runtime.InteropServices;
+using Paroxe.PdfRenderer.Internal;
 
 namespace Paroxe.PdfRenderer.WebGL
 {
@@ -25,7 +25,7 @@ namespace Paroxe.PdfRenderer.WebGL
                 if (m_NativePointer != IntPtr.Zero)
                 {
 #if UNITY_WEBGL && !UNITY_EDITOR
-                    PDFJS_DestroyCanvas(m_NativePointer.ToInt32());
+                    NativeMethods.PDFJS_DestroyCanvas(m_NativePointer.ToInt32());
 #endif
                     m_NativePointer = IntPtr.Zero;
                 }
@@ -39,11 +39,5 @@ namespace Paroxe.PdfRenderer.WebGL
             Dispose(true);
             GC.SuppressFinalize(this);
         }
-
-#if UNITY_WEBGL && !UNITY_EDITOR
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern void PDFJS_DestroyCanvas(int canvasHandle);
-#endif
-
     }
 }

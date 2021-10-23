@@ -2,6 +2,7 @@ var PDFRenderer =
 {
 	PDFRenderer_loadedPages: [],
 	PDFRenderer_loadedDocuments: [],
+	PDFRenderer_loadedDocumentLoadingTasks: [],
 	PDFRenderer_loadedCanvas: [],
 	PDFRenderer_workers: [],
      
@@ -19,7 +20,9 @@ var PDFRenderer =
 				{
 					script.onreadystatechange = null;
 					
-					PDFJS.workerSrc = 'pdf.worker.js';
+					pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.js';
+					pdfjsLib.cMapUrl = "cmaps/";
+					pdfjsLib.cMapPacked = true;
 					
 					SendMessage("WebGL_JSRuntime", 'OnLibraryInitialized', '');
 				}
@@ -30,7 +33,9 @@ var PDFRenderer =
 			//Others
 			script.onload = function()
 			{
-				PDFJS.workerSrc = 'pdf.worker.js';
+				pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.js';
+				pdfjsLib.cMapUrl = "cmaps/";
+				pdfjsLib.cMapPacked = true;
 				
 				SendMessage("WebGL_JSRuntime", 'OnLibraryInitialized', '');
 			};
@@ -41,12 +46,12 @@ var PDFRenderer =
 		_PDFRenderer_Initialized = true;
 	},
 			
-	PDFJS_LoadDocumentFromURL__deps: ['PDFRenderer_loadedDocuments'],
+	PDFJS_LoadDocumentFromURL__deps: ['PDFRenderer_loadedDocuments', 'PDFRenderer_loadedDocumentLoadingTasks'],
 	PDFJS_LoadDocumentFromURL: function(promiseHandle, url)
 	{
 		var promiseHandleString = Pointer_stringify(promiseHandle);
 		
-		var loadingTask = PDFJS.getDocument(Pointer_stringify(url));
+		var loadingTask = pdfjsLib.getDocument(Pointer_stringify(url));
 		
 		loadingTask.onProgress = function(progress) {
 		  SendMessage("WebGL_JSRuntime", "OnPromiseProgress", "promiseHandle: " + promiseHandleString + " progress: " + (progress.loaded / progress.total));
@@ -70,6 +75,8 @@ var PDFRenderer =
 				assignedIndex = _PDFRenderer_loadedDocuments.push(pdf) - 1;
 			}
 			
+			_PDFRenderer_loadedDocumentLoadingTasks[assignedIndex] = loadingTask;
+						
 			SendMessage("WebGL_JSRuntime", "OnPromiseThen", "promiseHandle: " + promiseHandleString + " objectHandle: " + (assignedIndex + 1).toString());
 		},function(reason)
 		{
@@ -78,7 +85,7 @@ var PDFRenderer =
 		
 	},
 	
-	PDFJS_LoadDocumentFromBytes__deps: ['PDFRenderer_loadedDocuments'],
+	PDFJS_LoadDocumentFromBytes__deps: ['PDFRenderer_loadedDocuments', 'PDFRenderer_loadedDocumentLoadingTasks'],
 	PDFJS_LoadDocumentFromBytes: function(promiseHandle, base64)
 	{
 		var promiseHandleString = Pointer_stringify(promiseHandle);
@@ -91,7 +98,9 @@ var PDFRenderer =
 			uint8Array[i] = raw.charCodeAt(i);
 		}
 				
-		PDFJS.getDocument(uint8Array).then(function(pdf) 
+		var loadingTask = pdfjsLib.getDocument(uint8Array);
+				
+		loadingTask.promise.then(function(pdf) 
 		{
 			var assignedIndex = -1;
 			var length = _PDFRenderer_loadedDocuments.length;		
@@ -109,6 +118,8 @@ var PDFRenderer =
 				assignedIndex = _PDFRenderer_loadedDocuments.push(pdf) - 1;
 			}
 			
+			_PDFRenderer_loadedDocumentLoadingTasks[assignedIndex] = loadingTask;
+			
 			SendMessage("WebGL_JSRuntime", "OnPromiseThen", "promiseHandle: " + promiseHandleString + " objectHandle: " + (assignedIndex + 1).toString());
 		},function(reason)
 		{
@@ -116,12 +127,20 @@ var PDFRenderer =
 		});
 	},
 	
-	PDFJS_CloseDocument__deps: ['PDFRenderer_loadedDocuments'],
+	PDFJS_CloseDocument__deps: ['PDFRenderer_loadedDocuments', 'PDFRenderer_loadedDocumentLoadingTasks'],
 	PDFJS_CloseDocument: function(documentHandle)
 	{
 		var pdfDocument = _PDFRenderer_loadedDocuments[documentHandle - 1];
 		_PDFRenderer_loadedDocuments[documentHandle - 1] = undefined;
+		
+		var loadingTask = _PDFRenderer_loadedDocumentLoadingTasks[documentHandle - 1];
+		_PDFRenderer_loadedDocumentLoadingTasks[documentHandle - 1] = undefined;
+		
+		pdfDocument.cleanup();
 		delete pdfDocument;
+		
+		loadingTask.destroy();
+		delete loadingTask;
 	},
 	
 	PDFJS_GetPageCount__deps: ['PDFRenderer_loadedDocuments'],
@@ -185,16 +204,16 @@ var PDFRenderer =
 	},
 	
 	PDFJS_RenderPageIntoCanvas__deps: ['PDFRenderer_loadedPages', 'PDFRenderer_loadedCanvas', 'PDFRenderer_workers'],
-    PDFJS_RenderPageIntoCanvas: function(promiseHandle, pageHandle, scale)
+    PDFJS_RenderPageIntoCanvas: function(promiseHandle, pageHandle, scale, width, height)
     {
 		var promiseHandleString = Pointer_stringify(promiseHandle);
 		var page = _PDFRenderer_loadedPages[pageHandle - 1];
-		var viewport = page.getViewport(scale);
+		var viewport = page.getViewport({ scale: scale, });
 		var canvas = document.createElement('canvas');
 		var context = canvas.getContext('2d');
 		
-		context.canvas.width = viewport.width;
-		context.canvas.height = viewport.height;
+		context.canvas.width = width;
+		context.canvas.height = height;
 
 		var renderContext = 
 		{
@@ -202,7 +221,7 @@ var PDFRenderer =
 			viewport: viewport
 		};
 				
-		_PDFRenderer_workers[promiseHandle] = page.render(renderContext).then(function()
+		_PDFRenderer_workers[promiseHandle] = page.render(renderContext).promise.then(function()
 		{
 			var assignedIndex = -1;
 			var length = _PDFRenderer_loadedCanvas.length;		
@@ -234,14 +253,24 @@ var PDFRenderer =
     },
 		
 	PDFJS_RenderCanvasIntoTexture__deps: ['PDFRenderer_loadedCanvas'],
-	PDFJS_RenderCanvasIntoTexture: function(canvasHandle, textureHandle)
+    PDFJS_RenderCanvasIntoTexture: function (canvasHandle, textureHandle)
 	{
-		var canvas = _PDFRenderer_loadedCanvas[canvasHandle - 1];
+	    var canvas = _PDFRenderer_loadedCanvas[canvasHandle - 1];
 		
-		GLctx.pixelStorei(GLctx.UNPACK_FLIP_Y_WEBGL, true);
-		GLctx.bindTexture(GLctx.TEXTURE_2D, GL.textures[textureHandle]);
-		GLctx.texSubImage2D(GLctx.TEXTURE_2D, 0, 0, 0, GLctx.RGBA, GLctx.UNSIGNED_BYTE, canvas);
-		GLctx.pixelStorei(GLctx.UNPACK_FLIP_Y_WEBGL, false);		
+		GLctx.pixelStorei(GLctx.UNPACK_FLIP_Y_WEBGL, true);	
+        GLctx.bindTexture(GLctx.TEXTURE_2D, GL.textures[textureHandle]);
+
+		if (typeof WebGL2RenderingContext !== 'undefined' && GLctx instanceof WebGL2RenderingContext)
+        {
+            GLctx.texSubImage2D(GLctx.TEXTURE_2D, 0, 0, 0, canvas.width, canvas.height, GLctx.RGBA, GLctx.UNSIGNED_BYTE, canvas);
+		}
+		else
+        {
+			GLctx.texImage2D(GLctx.TEXTURE_2D, 0, GLctx.RGBA, GLctx.RGBA, GLctx.UNSIGNED_BYTE, canvas);
+        }
+
+		GLctx.bindTexture(GLctx.TEXTURE_2D, null);
+        GLctx.pixelStorei(GLctx.UNPACK_FLIP_Y_WEBGL, false);
 	},
 	
 	PDFJS_DestroyCanvas__deps: ['PDFRenderer_loadedCanvas'],
@@ -255,13 +284,13 @@ var PDFRenderer =
 	PDFJS_GetPageWidth__deps: ['PDFRenderer_loadedPages'],
 	PDFJS_GetPageWidth: function(pageHandle, scale)
 	{
-		return _PDFRenderer_loadedPages[pageHandle - 1].getViewport(scale).width;
+		return _PDFRenderer_loadedPages[pageHandle - 1].getViewport({ scale: scale, }).width;
 	},
 	
 	PDFJS_GetPageHeight__deps: ['PDFRenderer_loadedPages'],
 	PDFJS_GetPageHeight: function(pageHandle, scale)
 	{
-		return _PDFRenderer_loadedPages[pageHandle - 1].getViewport(scale).height;
+		return _PDFRenderer_loadedPages[pageHandle - 1].getViewport({ scale: scale, }).height;
 	}
 };
 

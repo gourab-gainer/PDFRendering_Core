@@ -7,16 +7,16 @@ using UnityEngine.UI;
 using System.IO;
 using Paroxe.PdfRenderer.Internal.Viewer;
 using UnityEditor;
-using SFB;
 using UnityEngine.EventSystems;
 using System.Runtime.InteropServices;
 using UnityEngine.Networking;
+using MiniJSON;
 
 
 public class Manager : MonoBehaviour
 {
     [SerializeField] public PDFViewer m_PDFViewer;
-    [SerializeField] private Button selectBtn;
+    //[SerializeField] private Button selectBtn;
     [SerializeField] private Button watchBtn;
     [SerializeField] private TextMeshProUGUI fileNameTxt;
     [SerializeField] private GameObject pageContainer;
@@ -61,31 +61,33 @@ public class Manager : MonoBehaviour
     private void OnEnable()
     {
         //m_PDFViewer.OnPageChanged += ShowPage;
-        selectBtn?.onClick.RemoveAllListeners();
-        string path = "";
-        m_PDFViewer.PDFAsset = pdfs[0].Pdf;
-        selectBtn?.onClick.AddListener(() => 
+        //selectBtn?.onClick.RemoveAllListeners();
+        //string path = "";
+
+        /* selectBtn?.onClick.AddListener(() =>
         {
             SelectionScreen.SetActive(false);
             choosePdfCanvas.SetActive(true);
-           // FileUploads_WebTool.Instance.UploadImageFromPC(OnImagePathReceived, path, "others");
-        });
+            // FileUploads_WebTool.Instance.UploadImageFromPC(OnImagePathReceived, path, "others");
+        }); */
+
         watchBtn?.onClick.AddListener(() =>
         {
-            m_PDFViewer.LoadDocument();
+            m_PDFViewer.LoadDocumentFromAsset(pdfs[0].Pdf);
             SelectionScreen.SetActive(false);
             choosePdfCanvas.SetActive(false);
         });
+
         PdfPrototype.OnSelectedPdf += HandlePdf;
-       
+        FileBrowserWebgl.OnFileChoose += OnFileChooseCallback;
+
         //fileNameTxt.gameObject.SetActive(false);
     }
+
     private void HandlePdf(PdfAssetFile assetFile)
     {
-        m_PDFViewer.PDFAsset = assetFile.Pdf;
-        m_PDFViewer.LoadDocument();
+        m_PDFViewer.LoadDocumentFromAsset(assetFile.Pdf);
         choosePdfCanvas.SetActive(false);
-
     }
 
 
@@ -132,12 +134,20 @@ public class Manager : MonoBehaviour
     {
         //m_PDFViewer.OnPageChanged += ShowPage;
         PdfPrototype.OnSelectedPdf -= HandlePdf;
+        FileBrowserWebgl.OnFileChoose -= OnFileChooseCallback;
 
     }
-    public void OnSelecPDF()
+
+    public void OnChoosePDF()
     {
-       // FileUploads_WebTool.Instance.UploadImageFromPC(OnImagePathReceived);
+        choosePdfCanvas.SetActive(true);
     }
+
+    // public void OnSelecPDF()
+    // {
+    //     // FileUploads_WebTool.Instance.UploadImageFromPC(OnImagePathReceived);
+    // }
+
     void OnImagePathReceived(string path, string fileName, string extension)
     {
 
@@ -152,7 +162,7 @@ public class Manager : MonoBehaviour
         //    FileUploads_WebTool.Instance.LoadingScreen.SetActive(false);
     }
 
-    private void SelectPDF()
+    /* private void SelectPDF()
     {
 
         string baseDirectory = "";
@@ -208,21 +218,21 @@ public class Manager : MonoBehaviour
             {
                 m_PDFViewer.FilePath = filePath;
             }
-          //  fileNameTxt.gameObject.SetActive(true);
-           // fileNameTxt.text = fileName;
+            //  fileNameTxt.gameObject.SetActive(true);
+            // fileNameTxt.text = fileName;
         }
-    }
-    private static bool Browse(string startPath, ref string filename, ref string folder, ref string filePath, ref bool isStreamingAsset, ref bool isPersistentData, ref bool isResourcesAsset, ref bool isFilePath)
+    } */
+    /* private static bool Browse(string startPath, ref string filename, ref string folder, ref string filePath, ref bool isStreamingAsset, ref bool isPersistentData, ref bool isResourcesAsset, ref bool isFilePath)
     {
         bool result = false;
-          string[] paths = StandaloneFileBrowser.OpenFilePanel("Open File", Application.dataPath, "", true);
+        string[] paths = StandaloneFileBrowser.OpenFilePanel("Open File", Application.dataPath, "", true);
         // string path = UnityEditor.EditorUtility.OpenFilePanel("Browse video file", startPath, "*");
         string path = paths[0];
-        Debug.Log("Path: "+path);
-        Debug.Log("start: "+ startPath);
-        Debug.Log("filename: "+ filename);
-        foreach(string m in paths)
-        Debug.Log("paths: "+ m);
+        Debug.Log("Path: " + path);
+        Debug.Log("start: " + startPath);
+        Debug.Log("filename: " + filename);
+        foreach (string m in paths)
+            Debug.Log("paths: " + m);
 
 
 
@@ -305,9 +315,45 @@ public class Manager : MonoBehaviour
             result = true;
         }
         return result;
+    } */
+
+    #region webgl file browser implementation
+    private void OnFileChooseCallback(string callbackData)
+    {
+        Dictionary<string, object> value = Json.Deserialize(callbackData) as Dictionary<string, object>;
+
+        //value contains "name" and "url" key
+        StartCoroutine(MoveFile(value));
     }
-    
+
+    IEnumerator MoveFile(Dictionary<string, object> data)
+    {
+        using (UnityWebRequest webRequest = UnityWebRequest.Get(data["url"].ToString()))
+        {
+            // Request and wait for the desired page.
+            yield return webRequest.SendWebRequest();
+            if (webRequest.isNetworkError)
+            {
+                Debug.Log("Error opening the file...");
+            }
+            else
+            {
+                byte[] buffer = webRequest.downloadHandler.data;
+                Debug.Log(string.Format("{0}({1} bytes) file choosed", data["name"].ToString(), buffer.Length));
+                m_PDFViewer.LoadDocumentFromBuffer(buffer);
+                SelectionScreen.SetActive(false);
+                choosePdfCanvas.SetActive(false);
+            }
+        }
+    }
+
+    public void OnFileBrowserDown()
+    {
+        FileBrowserWebgl.ChooseFile(".pdf");
+    }
+    #endregion
 }
+
 [System.Serializable]
 public class PdfAssetFile
 {

@@ -1,41 +1,78 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace Paroxe.PdfRenderer.Internal.Viewer
 {
-    public class PDFBookmarksViewer : UIBehaviour
+	public class PDFBookmarksViewer : UIBehaviour
     {
-        public RectTransform m_BooksmarksContainer;
-        public PDFBookmarkListItem m_ItemPrefab;
-        public Image m_LastHighlightedImage;
+        [SerializeField]
+        private RectTransform m_BooksmarksContainer;
+        [SerializeField]
+        private PDFBookmarkListItem m_ItemPrefab;
+        [SerializeField]
+        private Image m_LastHighlightedImage;
+
 #if !UNITY_WEBGL
-        private CanvasGroup m_CanvasGroup;
+        private CanvasGroup m_ContainerCanvasGroup;
+        private PDFViewerLeftPanelScrollbar m_Scrollbar;
         private bool m_Initialized = false;
         private RectTransform m_LeftPanel;
         private bool m_Loaded = false;
         private PDFDocument m_Document;
-        private PDFViewer m_PDFViewer;
+        private PDFViewer m_Viewer;
         private RectTransform m_RectTransform;
         private List<RectTransform> m_TopLevelItems;
+        private PDFBookmark m_RootBookmark;
+        private bool m_IsEnableCalled;
+        private List<PDFBookmarkListItem> m_Items = new List<PDFBookmarkListItem>();
+#endif
+
+        public Image LastHighlightedImage
+	    {
+		    get { return m_LastHighlightedImage; }
+		    set { m_LastHighlightedImage = value; }
+	    }
+
+#if !UNITY_WEBGL
+        public PDFBookmark RootBookmark
+	    {
+		    get { return m_RootBookmark; }
+	    }
+
+	    public PDFViewer Viewer
+	    {
+		    get { return m_Viewer; }
+	    }
+#endif
+
+#if !UNITY_WEBGL
+        public void RegisterItem(PDFBookmarkListItem item)
+	    {
+		    m_Items.Add(item);
+	    }
+
+        private void UpdateItemsPlacement()
+        {
+	        foreach (PDFBookmarkListItem item in m_Items)
+	        {
+		        if (item == null)
+			        continue;
+
+		        item.UpdateItem();
+	        }
+        }
 #endif
 
         public void DoUpdate()
         {
 #if !UNITY_WEBGL
-            if (m_Initialized)
-            {
-                float containerHeight = 0.0f;
-                foreach (RectTransform child in m_TopLevelItems)
-                {
-                    containerHeight += child.sizeDelta.y;
-                }
-            }
-
-            if (m_RectTransform != null && m_LeftPanel != null &&
-                m_RectTransform.sizeDelta.x != m_LeftPanel.sizeDelta.x - 24.0f)
+	        if (m_RectTransform != null && m_LeftPanel != null &&
+                Math.Abs(m_RectTransform.sizeDelta.x - (m_LeftPanel.sizeDelta.x - 24.0f)) > 0.01f)
             {
                 m_RectTransform.sizeDelta = new Vector2(m_LeftPanel.sizeDelta.x - 24.0f, m_RectTransform.sizeDelta.y);
             }
@@ -51,15 +88,21 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                 m_Initialized = false;
                 m_TopLevelItems = null;
                 m_Document = null;
+                m_RootBookmark = null;
 
-                int childCount = m_BooksmarksContainer.transform.childCount;
-                for (int i = 1; i < childCount; ++i)
+                bool isNotFirst = false;
+                foreach (Transform child in m_BooksmarksContainer.transform)
                 {
-                    Destroy(m_BooksmarksContainer.transform.GetChild(i).gameObject);
+                    if (isNotFirst)
+                        Destroy(child.gameObject);
+                    else
+                        isNotFirst = true;
                 }
 
                 m_ItemPrefab.gameObject.SetActive(false);
-                m_CanvasGroup.alpha = 0.0f;
+                SetAlpha(0.0f);
+
+                m_Items.Clear();
             }
 #endif
         }
@@ -67,59 +110,68 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
         public void OnDocumentLoaded(PDFDocument document)
         {
 #if !UNITY_WEBGL
-            if (!m_Loaded && gameObject.activeInHierarchy)
+	        if (m_Loaded) 
+		        return;
+
+	        m_Loaded = true;
+            m_Document = document;
+
+            m_TopLevelItems = new List<RectTransform>();
+
+            m_RectTransform = (RectTransform)transform;
+            m_LeftPanel = (RectTransform)transform.parent;
+
+            m_RootBookmark = m_Document.GetRootBookmark();
+
+            if (m_RootBookmark == null || m_RootBookmark.ChildCount == 0) 
+	            return;
+
+            gameObject.SetActive(true);
+
+            m_ItemPrefab.gameObject.SetActive(true);
+
+            foreach (PDFBookmark child in m_RootBookmark.EnumerateChildrenBookmarks())
             {
-                m_Loaded = true;
-                m_Document = document;
+	            PDFBookmarkListItem item = Instantiate(m_ItemPrefab.gameObject).GetComponent<PDFBookmarkListItem>();
+	            RectTransform itemTransform = (RectTransform)item.transform;
 
-                m_TopLevelItems = new List<RectTransform>();
+	            itemTransform.SetParent(m_BooksmarksContainer, false);
+	            itemTransform.localScale = Vector3.one;
+	            itemTransform.anchorMin = new Vector2(0.0f, 1.0f);
+	            itemTransform.anchorMax = new Vector2(0.0f, 1.0f);
+	            itemTransform.offsetMin = Vector2.zero;
+	            itemTransform.offsetMax = Vector2.zero;
 
-                m_RectTransform = transform as RectTransform;
-                m_LeftPanel = transform.parent as RectTransform;
+	            m_TopLevelItems.Add(itemTransform);
 
-                PDFViewer viewer = GetComponentInParent<PDFViewer>();
-                PDFBookmark rootBookmark = m_Document.GetRootBookmark(viewer);
-
-                if (rootBookmark != null)
-                {
-                    m_ItemPrefab.gameObject.SetActive(true);
-
-                    foreach (PDFBookmark child in rootBookmark.EnumerateChildrenBookmarks())
-                    {
-                        PDFBookmarkListItem item = null;
-
-                        item = Instantiate(m_ItemPrefab.gameObject).GetComponent<PDFBookmarkListItem>();
-                        RectTransform itemTransform = item.transform as RectTransform;
-                        itemTransform.SetParent(m_BooksmarksContainer, false);
-                        itemTransform.localScale = Vector3.one;
-                        itemTransform.anchorMin = new Vector2(0.0f, 1.0f);
-                        itemTransform.anchorMax = new Vector2(0.0f, 1.0f);
-                        itemTransform.offsetMin = Vector2.zero;
-                        itemTransform.offsetMax = Vector2.zero;
-
-                        m_TopLevelItems.Add(item.transform as RectTransform);
-
-                        item.Initilize(child, 0, false);
-                    }
-
-                    m_ItemPrefab.gameObject.SetActive(false);
-
-                    m_Initialized = true;
-
-                    if (GetComponentInParent<PDFViewerLeftPanel>().m_Thumbnails.gameObject.GetComponent<CanvasGroup>().alpha == 0.0f)
-                        StartCoroutine(DelayedShow());
-                }
+	            item.Initialize(this, child, 0, false);
             }
+
+            m_ItemPrefab.gameObject.SetActive(false);
+
+            UpdateItemsPlacement();
+
+            SetAlpha(0.0f);
+
+            Viewer.StartCoroutine(DelayedShow(m_Document));
 #endif
         }
 
 #if !UNITY_WEBGL
-        IEnumerator DelayedShow()
+        IEnumerator DelayedShow(PDFDocument document)
         {
-            yield return null;
-            yield return null;
-            yield return null;
-            m_CanvasGroup.alpha = 1.0f;
+	        for (int i = 0; i < 3; ++i)
+	        {
+                if (!m_Loaded || m_Document != document)
+                    yield break;
+
+                yield return null;
+            }
+
+	        if (m_Loaded && m_Document == document)
+	        {
+		        SetAlpha(1.0f);
+            }
         }
 #endif
 
@@ -131,18 +183,6 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
         }
 
 #if !UNITY_WEBGL
-        protected override void OnDisable()
-        {
-            base.OnDisable();
-
-            if (m_Loaded)
-            {
-                Cleanup();
-            }
-        }
-#endif
-
-#if !UNITY_WEBGL
         protected override void OnEnable()
         {
             base.OnEnable();
@@ -151,22 +191,74 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
         }
 #endif
 
+#if !UNITY_WEBGL
+        protected override void OnDisable()
+	    {
+            base.OnDisable();
+
+            m_IsEnableCalled = false;
+        }
+#endif
+
         public void DoOnEnable()
         {
 #if !UNITY_WEBGL
-            if (m_PDFViewer == null)
-                m_PDFViewer = GetComponentInParent<PDFViewer>();
-            if (m_CanvasGroup == null)
-                m_CanvasGroup = GetComponent<CanvasGroup>();
-            if (m_RectTransform == null)
-                m_RectTransform = transform as RectTransform;
+	        if (m_IsEnableCalled)
+		        return;
+	        m_IsEnableCalled = true;
+
+	        if (m_RectTransform == null)
+		        m_RectTransform = (RectTransform)transform;
+
+            if (m_Viewer == null)
+                m_Viewer = GetComponentInParent<PDFViewer>();
+            
+            if (m_ContainerCanvasGroup == null)
+            {
+	            m_ContainerCanvasGroup = m_BooksmarksContainer.GetComponent<CanvasGroup>();
+
+	            if (m_ContainerCanvasGroup == null)
+	            {
+		            m_ContainerCanvasGroup = m_BooksmarksContainer.gameObject.AddComponent<CanvasGroup>();
+	            }
+            }
+
+            if (m_Scrollbar == null)
+            {
+	            ScrollRect scrollRect = GetComponent<ScrollRect>();
+
+	            if (scrollRect != null)
+	            {
+		            Scrollbar scrollbar = scrollRect.verticalScrollbar;
+
+		            if (scrollbar != null)
+		            {
+			            m_Scrollbar = scrollbar.GetComponent<PDFViewerLeftPanelScrollbar>();
+		            }
+	            }
+            }
 
             m_ItemPrefab.gameObject.SetActive(false);
-            m_CanvasGroup.alpha = 0.0f;
 
-            if (!m_Loaded && m_PDFViewer.Document != null && m_PDFViewer.Document.IsValid)
-                OnDocumentLoaded(m_PDFViewer.Document);
+            if (!m_Loaded && m_Viewer.Document != null && m_Viewer.Document.IsValid)
+            {
+	            OnDocumentLoaded(m_Viewer.Document);
+            }
+            else
+            {
+	            UpdateItemsPlacement();
+            }
 #endif
         }
+
+#if !UNITY_WEBGL
+        private void SetAlpha(float alpha)
+        {
+	        m_ContainerCanvasGroup.alpha = alpha;
+
+            if (m_Scrollbar != null)
+	            m_Scrollbar.Alpha = alpha;
+        }
+#endif
     }
 }

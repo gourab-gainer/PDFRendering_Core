@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Paroxe.PdfRenderer.Internal
 {
-    [CustomEditor(typeof (PDFAsset), true)]
+    [CustomEditor(typeof(PDFAsset), true)]
     public class PDFAssetEditor : Editor
     {
         GUIStyle m_Background1;
@@ -48,7 +48,7 @@ namespace Paroxe.PdfRenderer.Internal
 
         protected virtual void OnEnable()
         {
-            pdfAsset = (PDFAsset) target;
+            pdfAsset = (PDFAsset)target;
 
             m_Background1 = new GUIStyle();
             m_Background1.normal.background = MakeTex(600, 1, new Color(1.0f, 1.0f, 1.0f, 0.1f));
@@ -59,13 +59,13 @@ namespace Paroxe.PdfRenderer.Internal
 
             MonoScript script = MonoScript.FromScriptableObject(this);
             string path = AssetDatabase.GetAssetPath(script);
-            string logoPath = Path.GetDirectoryName(path) + "/logo_pa.png";
-            m_Logo = (Texture2D) AssetDatabase.LoadAssetAtPath(logoPath, typeof (Texture2D));
+            string logoPath = Path.GetDirectoryName(path) + "/Icons/logo_pa.png";
+            m_Logo = (Texture2D)AssetDatabase.LoadAssetAtPath(logoPath, typeof(Texture2D));
         }
 
         private Texture2D MakeTex(int width, int height, Color col)
         {
-            Color[] pix = new Color[width*height];
+            Color[] pix = new Color[width * height];
 
             for (int i = 0; i < pix.Length; i++)
             {

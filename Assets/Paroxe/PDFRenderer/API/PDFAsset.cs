@@ -7,8 +7,10 @@ namespace Paroxe.PdfRenderer
     /// </summary>
     public class PDFAsset : ScriptableObject
     {
-        [SerializeField] public byte[] m_FileContent;
-        [SerializeField] public string m_Password;
+        [SerializeField]
+        public byte[] m_FileContent;
+        [SerializeField]
+        public string m_Password;
 
         public string Password
         {

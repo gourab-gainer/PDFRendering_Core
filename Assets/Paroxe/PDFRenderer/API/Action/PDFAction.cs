@@ -1,10 +1,6 @@
 ﻿using System;
-using System.Runtime.InteropServices;
-#if NETFX_CORE && !UNITY_WSA_10_0
-using WinRTLegacy.Text;
-#else
+using Paroxe.PdfRenderer.Internal;
 using System.Text;
-#endif
 
 namespace Paroxe.PdfRenderer
 {
@@ -12,49 +8,39 @@ namespace Paroxe.PdfRenderer
     /// <summary>
     /// Represents the PDF action into a PDF document.
     /// </summary>
-    public class PDFAction : IDisposable
+    public sealed class PDFAction
     {
-        private bool m_Disposed;
-        private IntPtr m_NativePointer;
-        private IDisposable m_Source;
+	    private IntPtr m_NativePointer;
+        private object m_Source;
         private PDFDocument m_Document;
-        private ActionType m_ActionType = ActionType.Unknown;
+        private PDFDest m_Dest;
+        private ActionType? m_ActionType;
         private string m_FilePath;
         private string m_URIPath;
+        private bool m_DestCached;
 
         public PDFAction(PDFLink link, IntPtr nativePointer)
         {
             if (link == null)
-                throw new NullReferenceException();
+                throw new ArgumentNullException("link");
             if (nativePointer == IntPtr.Zero)
-                throw new NullReferenceException();
-
-            PDFLibrary.AddRef("PDFAction");
+                throw new ArgumentNullException("nativePointer");
 
             m_Source = link;
             m_Document = link.Page.Document;
-
             m_NativePointer = nativePointer;
         }
 
         public PDFAction(PDFBookmark bookmark, IntPtr nativePointer)
         {
             if (bookmark == null)
-                throw new NullReferenceException();
+                throw new ArgumentNullException("bookmark");
             if (nativePointer == IntPtr.Zero)
-                throw new NullReferenceException();
-
-            PDFLibrary.AddRef("PDFAction");
+                throw new ArgumentNullException("nativePointer");
 
             m_Source = bookmark;
             m_Document = bookmark.Document;
-
             m_NativePointer = nativePointer;
-        }
-
-        ~PDFAction()
-        {
-            Dispose(false);
         }
 
         public enum ActionType
@@ -82,7 +68,7 @@ namespace Paroxe.PdfRenderer
             Unknown = 133709999
         };
 
-        public IDisposable Source
+        public object Source
         {
             get { return m_Source; }
         }
@@ -97,34 +83,23 @@ namespace Paroxe.PdfRenderer
             get { return m_NativePointer; }
         }
 
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!m_Disposed)
-            {
-                m_NativePointer = IntPtr.Zero;
-
-                PDFLibrary.RemoveRef("PDFAction");
-
-                m_Disposed = true;
-            }
-        }
-
         /// <summary>
         /// Gets the PDFDest object associated with this action.
         /// </summary>
         /// <returns></returns>
         public PDFDest GetDest()
         {
-            IntPtr destPtr = FPDFAction_GetDest(m_Document.NativePointer, m_NativePointer);
+	        if (m_DestCached)
+		        return m_Dest;
+
+            IntPtr destPtr = NativeMethods.FPDFAction_GetDest(m_Document.NativePointer, m_NativePointer);
+
             if (destPtr != IntPtr.Zero)
-                return new PDFDest(this, destPtr);
-            return null;
+	            m_Dest = new PDFDest(this, destPtr);
+
+            m_DestCached = true;
+
+            return m_Dest;
         }
 
         public string GetFilePath()
@@ -133,11 +108,13 @@ namespace Paroxe.PdfRenderer
             {
                 byte[] buffer = new byte[4096];
 
-                int filePathLength = (int) FPDFAction_GetFilePath(m_NativePointer, buffer, (uint) buffer.Length);
+                int filePathLength = (int)NativeMethods.FPDFAction_GetFilePath(m_NativePointer, buffer, (uint)buffer.Length);
+
                 if (filePathLength > 0)
-                    m_FilePath =
-                        Encoding.Unicode.GetString(Encoding.Convert(Encoding.ASCII, Encoding.Unicode, buffer, 0,
-                            filePathLength));
+                {
+	                m_FilePath = Encoding.Unicode.GetString(Encoding.Convert(Encoding.ASCII, Encoding.Unicode, buffer, 0, filePathLength));
+                }
+
             }
 
             return m_FilePath;
@@ -149,9 +126,9 @@ namespace Paroxe.PdfRenderer
         /// <returns></returns>
         public ActionType GetActionType()
         {
-            if (m_ActionType == ActionType.Unknown)
-                m_ActionType = (ActionType) FPDFAction_GetType(m_NativePointer);
-            return m_ActionType;
+            if (!m_ActionType.HasValue)
+                m_ActionType = (ActionType)NativeMethods.FPDFAction_GetType(m_NativePointer);
+            return m_ActionType.Value;
         }
 
         /// <summary>
@@ -164,33 +141,16 @@ namespace Paroxe.PdfRenderer
             {
                 byte[] buffer = new byte[4096];
 
-                int uriLength =
-                    (int)
-                        FPDFAction_GetURIPath(m_Document.NativePointer, m_NativePointer, buffer, (uint)buffer.Length);
+                int uriLength = (int) NativeMethods.FPDFAction_GetURIPath(m_Document.NativePointer, m_NativePointer, buffer, (uint)buffer.Length);
+                
                 if (uriLength > 0)
-                    m_URIPath =
-                        Encoding.Unicode.GetString(Encoding.Convert(Encoding.ASCII, Encoding.Unicode, buffer, 0,
-                            uriLength));
+                {
+	                m_URIPath = Encoding.Unicode.GetString(Encoding.Convert(Encoding.ASCII, Encoding.Unicode, buffer, 0, uriLength));
+                }
             }
 
             return m_URIPath;
         }
-
-#region NATIVE
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern IntPtr FPDFAction_GetDest(IntPtr document, IntPtr action);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern uint FPDFAction_GetFilePath(IntPtr action, [In, Out] byte[] buffer, uint buflen);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern uint FPDFAction_GetType(IntPtr action);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern uint FPDFAction_GetURIPath(IntPtr document, IntPtr action, [In, Out] byte[] buffer, uint buflen);
-
-#endregion
     }
 #endif
 }

@@ -1,11 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
-#if NETFX_CORE && !UNITY_WSA_10_0
-using WinRTLegacy.Text;
-#else
-using System.Text;
-#endif
+using Paroxe.PdfRenderer.Internal;
 
 namespace Paroxe.PdfRenderer
 {
@@ -13,37 +8,33 @@ namespace Paroxe.PdfRenderer
     /// <summary>
     /// Represents the bookmark into a PDF document.
     /// </summary>
-    public class PDFBookmark : IDisposable
+    public sealed class PDFBookmark
     {
-        private bool m_Disposed;
-        private List<PDFBookmark> m_Bookmarks = new List<PDFBookmark>();
+	    private List<PDFBookmark> m_Bookmarks = new List<PDFBookmark>();
         private PDFDocument m_Document;
         private IntPtr m_NativePointer;
         private PDFBookmark m_ParentBookmark;
-        private IPDFDevice m_Device;
         private string m_Title;
-
+        private PDFAction m_Action;
+        private PDFDest m_Dest;
+        private PDFBookmark m_FirstChild;
+        private PDFBookmark m_NextSibling;
+        private bool m_ActionCached;
+        private bool m_DestCached;
+        private bool m_FirstChildCached;
+        private bool m_NextSiblingCached;
+        
         public PDFBookmark(PDFDocument document, PDFBookmark parentBookmark, IntPtr nativePointer)
-            : this(document, parentBookmark, nativePointer, null)
         {
             if (document == null)
-                throw new NullReferenceException();
-        }
-
-        public PDFBookmark(PDFDocument document, PDFBookmark parentBookmark, IntPtr nativePointer, IPDFDevice device)
-        {
-            if (document == null)
-                throw new NullReferenceException();
+                throw new ArgumentNullException("document");
 
             m_ParentBookmark = parentBookmark;
             m_NativePointer = nativePointer;
             m_Document = document;
-            m_Device = device;
 
             if (m_NativePointer == IntPtr.Zero)
-                m_Title = "ROOT";
-
-            PDFLibrary.AddRef("PDFBookmark");
+	            m_Title = "ROOT";
 
             PDFBookmark firstChild = GetFirstChild();
 
@@ -54,31 +45,9 @@ namespace Paroxe.PdfRenderer
                 while (previousSibling != null)
                 {
                     m_Bookmarks.Add(previousSibling);
+
                     previousSibling = previousSibling.GetNextSibling();
                 }
-            }
-        }
-
-        ~PDFBookmark()
-        {
-            Dispose(false);
-        }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!m_Disposed)
-            {
-                m_NativePointer = IntPtr.Zero;
-
-                PDFLibrary.RemoveRef("PDFBookmark");
-
-                m_Disposed = true;
             }
         }
 
@@ -120,14 +89,19 @@ namespace Paroxe.PdfRenderer
             }
         }
 
-        public void ExecuteBookmarkAction()
+        public void ExecuteBookmarkAction(IPDFDevice device)
         {
-            if (m_Device != null)
-                PDFActionHandlerHelper.ExecuteBookmarkAction(m_Device, this);
+            if (device == null)
+                throw new ArgumentNullException("device");
+
+            PDFActionHandlerHelper.ExecuteBookmarkAction(this, device);
         }
 
         public PDFBookmark GetChild(int index)
         {
+            if (index < 0 || index >= ChildCount)
+                throw new ArgumentOutOfRangeException("index");
+
             return m_Bookmarks[index];
         }
 
@@ -137,64 +111,68 @@ namespace Paroxe.PdfRenderer
             {
                 byte[] buffer = new byte[4096];
 
-                int length = (int) FPDFBookmark_GetTitle(m_NativePointer, buffer, (uint) buffer.Length);
+                int length = (int) NativeMethods.FPDFBookmark_GetTitle(m_NativePointer, buffer, (uint)buffer.Length);
                 if (length > 0)
-                    m_Title = Encoding.Unicode.GetString(buffer);
+                    m_Title = PDFLibrary.Encoding.GetString(buffer);
             }
             return m_Title;
         }
 
         public PDFAction GetAction()
         {
-            IntPtr actionPtr = FPDFBookmark_GetAction(m_NativePointer);
+	        if (m_ActionCached)
+		        return m_Action;
+
+            IntPtr actionPtr = NativeMethods.FPDFBookmark_GetAction(m_NativePointer);
             if (actionPtr != IntPtr.Zero)
-                return new PDFAction(this, actionPtr);
-            return null;
+	            m_Action = new PDFAction(this, actionPtr);
+
+            m_ActionCached = true;
+
+            return m_Action;
         }
 
         public PDFDest GetDest()
         {
-            IntPtr destPtr = FPDFBookmark_GetDest(m_Document.NativePointer, m_NativePointer);
+	        if (m_DestCached)
+		        return m_Dest;
+
+            IntPtr destPtr = NativeMethods.FPDFBookmark_GetDest(m_Document.NativePointer, m_NativePointer);
             if (destPtr != IntPtr.Zero)
-                return new PDFDest(this, destPtr);
-            return null;
+	            m_Dest = new PDFDest(this, destPtr);
+
+            m_DestCached = true;
+
+            return m_Dest;
         }
 
         public PDFBookmark GetFirstChild()
         {
-            IntPtr childPtr = FPDFBookmark_GetFirstChild(m_Document.NativePointer, m_NativePointer);
+	        if (m_FirstChildCached)
+		        return m_FirstChild;
+
+            IntPtr childPtr = NativeMethods.FPDFBookmark_GetFirstChild(m_Document.NativePointer, m_NativePointer);
             if (childPtr != IntPtr.Zero)
-                return new PDFBookmark(m_Document, this, childPtr, m_Device);
-            return null;
+	            m_FirstChild = new PDFBookmark(m_Document, this, childPtr);
+
+            m_FirstChildCached = true;
+
+            return m_FirstChild;
         }
 
         public PDFBookmark GetNextSibling()
         {
-            IntPtr nextPtr = FPDFBookmark_GetNextSibling(m_Document.NativePointer, m_NativePointer);
+	        if (m_NextSiblingCached)
+		        return m_NextSibling;
+
+            IntPtr nextPtr = NativeMethods.FPDFBookmark_GetNextSibling(m_Document.NativePointer, m_NativePointer);
             if (nextPtr != IntPtr.Zero)
-                return new PDFBookmark(m_Document, m_ParentBookmark, nextPtr, m_Device);
-            return null;
+	            m_NextSibling = new PDFBookmark(m_Document, m_ParentBookmark, nextPtr);
+
+            m_NextSiblingCached = true;
+
+            return m_NextSibling;
         }
-
-#region NATIVE
-
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern IntPtr FPDFBookmark_GetAction(IntPtr bookmark);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern IntPtr FPDFBookmark_GetDest(IntPtr document, IntPtr bookmark);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern IntPtr FPDFBookmark_GetFirstChild(IntPtr document, IntPtr bookmark);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern IntPtr FPDFBookmark_GetNextSibling(IntPtr document, IntPtr bookmark);
-
-        [DllImport(PDFLibrary.PLUGIN_ASSEMBLY)]
-        private static extern uint FPDFBookmark_GetTitle(IntPtr bookmark, [In, Out] byte[] buffer, uint buflen);
-
-#endregion
     }
 #endif
 }

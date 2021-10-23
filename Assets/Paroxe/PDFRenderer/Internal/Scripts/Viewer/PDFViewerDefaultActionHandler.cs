@@ -14,7 +14,7 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
 #if !UNITY_WEBGL
             if (filePath.Trim().Substring(filePath.Length - 4).ToLower().Contains("pdf"))
             {
-                device.LoadDocumentWithFile(filePath, "", 0);
+                device.LoadDocumentFromFile(filePath, "", 0);
             }
 #endif
         }
@@ -41,7 +41,7 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
             // ...
         }
 
-        public void HandleUnsuportedAction(IPDFDevice device)
+        public void HandleUnsupportedAction(IPDFDevice device)
         {
             // ...
         }

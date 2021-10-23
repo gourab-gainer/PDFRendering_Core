@@ -1,8 +1,5 @@
-﻿#if UNITY_WINRT && !UNITY_EDITOR
-using File = UnityEngine.Windows.File;
-#else
-using File = System.IO.File;
-#endif
+﻿using System;
+using System.IO;
 
 namespace Paroxe.PdfRenderer
 {
@@ -14,53 +11,68 @@ namespace Paroxe.PdfRenderer
     {
         public static void ExecuteAction(IPDFDeviceActionHandler actionHandler, IPDFDevice device, PDFAction action)
         {
-            if (action != null)
+            if (actionHandler == null)
+                throw new ArgumentNullException("actionHandler");
+            if (device == null)
+                throw new ArgumentNullException("device");
+            if (action == null)
+                throw new ArgumentNullException("action");
+
+            PDFAction.ActionType type = action.GetActionType();
+
+            switch (type)
             {
-                PDFAction.ActionType type = action.GetActionType();
+                case PDFAction.ActionType.Unsupported:
+                    actionHandler.HandleUnsupportedAction(device);
+                    break;
 
-                switch (type)
-                {
-                    case PDFAction.ActionType.Unsupported:
-                        break;
-                    case PDFAction.ActionType.GoTo:
-                        PDFDest dest = action.GetDest();
-                        actionHandler.HandleGotoAction(device, dest.PageIndex);
-                        break;
-                    case PDFAction.ActionType.RemoteGoTo:
-                        string resolvedFilePath = actionHandler.HandleRemoteGotoActionPathResolving(device,
-                            action.GetFilePath());
+                case PDFAction.ActionType.GoTo:
+                    PDFDest dest = action.GetDest();
+                    actionHandler.HandleGotoAction(device, dest.PageIndex);
+                    break;
 
-#if !((UNITY_4_6 || UNITY_4_7))
-                        if (File.Exists(resolvedFilePath))
+                case PDFAction.ActionType.RemoteGoTo:
+                    string resolvedFilePath = actionHandler.HandleRemoteGotoActionPathResolving(device, action.GetFilePath());
+
+                    if (File.Exists(resolvedFilePath))
+                    {
+                        string password = actionHandler.HandleRemoteGotoActionPasswordResolving(device, resolvedFilePath);
+
+                        PDFDocument newDocument = new PDFDocument(resolvedFilePath, password);
+
+                        if (newDocument.IsValid)
                         {
-                            string password = actionHandler.HandleRemoteGotoActionPasswordResolving(device,
-                                resolvedFilePath);
-                            PDFDocument newDocument = new PDFDocument(resolvedFilePath, password);
-
-                            if (newDocument.IsValid)
-                                actionHandler.HandleRemoteGotoActionResolved(device, newDocument,
-                                    action.GetDest().PageIndex);
-                            else
-                                actionHandler.HandleRemoteGotoActionUnresolved(device, resolvedFilePath);
+                            actionHandler.HandleRemoteGotoActionResolved(device, newDocument, action.GetDest().PageIndex);
                         }
                         else
-#endif
+                        {
+                            actionHandler.HandleRemoteGotoActionUnresolved(device, resolvedFilePath);
+                        }
+                    }
+                    else
+                    {
                         actionHandler.HandleRemoteGotoActionUnresolved(device, resolvedFilePath);
+                    }
 
+                    break;
 
-                        break;
-                    case PDFAction.ActionType.Uri:
-                        actionHandler.HandleUriAction(device, action.GetURIPath());
-                        break;
-                    case PDFAction.ActionType.Launch:
-                        actionHandler.HandleLaunchAction(device, action.GetFilePath());
-                        break;
-                }
+                case PDFAction.ActionType.Uri:
+                    actionHandler.HandleUriAction(device, action.GetURIPath());
+                    break;
+
+                case PDFAction.ActionType.Launch:
+                    actionHandler.HandleLaunchAction(device, action.GetFilePath());
+                    break;
             }
         }
 
-        public static void ExecuteBookmarkAction(IPDFDevice device, PDFBookmark bookmark)
+        public static void ExecuteBookmarkAction(PDFBookmark bookmark, IPDFDevice device)
         {
+            if (bookmark == null)
+                throw new ArgumentNullException("bookmark");
+            if (device == null)
+                throw new ArgumentNullException("device");
+
             if (device.BookmarksActionHandler != null)
             {
                 PDFDest dest = bookmark.GetDest();
@@ -79,8 +91,13 @@ namespace Paroxe.PdfRenderer
             }
         }
 
-        public static void ExecuteLinkAction(IPDFDevice device, PDFLink link)
+        public static void ExecuteLinkAction(PDFLink link, IPDFDevice device)
         {
+	        if (link == null)
+		        throw new ArgumentNullException("link");
+	        if (device == null)
+		        throw new ArgumentNullException("device");
+
             if (device.LinksActionHandler != null)
             {
                 PDFDest dest = link.GetDest();

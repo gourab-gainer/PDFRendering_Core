@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
@@ -11,22 +12,72 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
     [CustomEditor(typeof(PDFViewer), true)]
     public class PDFViewerEditor : Editor
     {
-        GUIStyle m_Background1;
-        GUIStyle m_Background2;
-        GUIStyle m_Background3;
-        Texture2D m_Logo;
-        PDFViewer pdfViewer = null;
-        PRParoxeBanner m_ParoxeBanner;
+        private Texture2D m_Logo;
+
+        private SerializedProperty m_FileSource = null;
+        private SerializedProperty m_Folder = null;
+        private SerializedProperty m_FileName = null;
+        private SerializedProperty m_FileURL = null;
+        private SerializedProperty m_FilePath = null;
+        private SerializedProperty m_BytesSupplierObject = null;
+        private SerializedProperty m_BytesSupplierComponent = null;
+        private SerializedProperty m_BytesSupplierFunctionName = null;
+        private SerializedProperty m_PDFAsset = null;
+        private SerializedProperty m_LoadOnEnable = null;
+        private SerializedProperty m_UnloadOnDisable = null;
+        private SerializedProperty m_Password = null;
+        private SerializedProperty m_ZoomFactor = null;
+        private SerializedProperty m_ZoomStep = null;
+        private SerializedProperty m_PageFitting = null;
+        private SerializedProperty m_VerticalMarginBetweenPages = null;
+        private SerializedProperty m_MinZoomFactor = null;
+        private SerializedProperty m_MaxZoomFactor = null;
+        private SerializedProperty m_ScrollSensitivity = null;
+        private SerializedProperty m_ShowTopBar = null;
+        private SerializedProperty m_ShowVerticalScrollBar = null;
+        private SerializedProperty m_ShowBookmarksViewer = null;
+        private SerializedProperty m_ShowHorizontalScrollBar = null;
+        private SerializedProperty m_ShowThumbnailsViewer = null;
+        private SerializedProperty m_ChangeCursorWhenOverURL = null;
+        private SerializedProperty m_AllowOpenURL = null;
+        private SerializedProperty m_SearchResultColor = null;
+        private SerializedProperty m_SearchResultPadding = null;
+        private SerializedProperty m_SearchTimeBudgetPerFrame = null;
+        private SerializedProperty m_ParagraphZoomFactor = null;
+        private SerializedProperty m_ParagraphZoomingEnable = null;
+        private SerializedProperty m_ParagraphDetectionThreshold = null;
+        private SerializedProperty m_MaxZoomFactorTextureQuality = null;
+        private SerializedProperty m_RenderSettings = null;
+        private SerializedProperty m_RenderAnnotations = null;
+        private SerializedProperty m_RenderGrayscale = null;
+
+        protected virtual void OnEnable()
+        {
+            MonoScript script = MonoScript.FromScriptableObject(this);
+            string scriptPath = AssetDatabase.GetAssetPath(script);
+
+            m_Logo = (Texture2D) AssetDatabase.LoadAssetAtPath(Path.GetDirectoryName(scriptPath) + "/Icons/logo_pv.png", typeof(Texture2D));
+
+            GetType().GetMembers(BindingFlags.NonPublic | BindingFlags.Instance)
+                .Where(x => x.MemberType == MemberTypes.Field && ((FieldInfo)x).FieldType == typeof(SerializedProperty))
+                .Cast<FieldInfo>()
+                .ToList().ForEach(prop =>
+                {
+                    SerializedProperty serializedProperty = serializedObject.FindProperty(prop.Name);
+
+                    if (serializedProperty != null)
+                        prop.SetValue(this, serializedProperty);
+                });
+
+            m_RenderAnnotations = m_RenderSettings.FindPropertyRelative("renderAnnotations");
+            m_RenderGrayscale = m_RenderSettings.FindPropertyRelative("grayscale");
+        }
 
         public override void OnInspectorGUI()
         {
-            if (pdfViewer != null)
-            {
-                Undo.RecordObject(pdfViewer, "PDFViewer");
+            Undo.RecordObject(target, "PDFViewer");
 
-                if (pdfViewer.m_Internal != null)
-                    Undo.RecordObject(pdfViewer.m_Internal, "PDFViewer_Internal");
-            }
+            serializedObject.Update();
 
             if (m_Logo != null)
             {
@@ -34,101 +85,99 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                 GUI.DrawTexture(rect, m_Logo, ScaleMode.ScaleToFit);
             }
 
-            if (pdfViewer.m_Internal == null && IsPrefabGhost(pdfViewer.transform))
-            {
-                return;
-            }
+            InspectLoadSettings();
+            InspectSecuritySettings();
+            InspectViewerSettings();
+            InspectSearchSettings();
+            InspectOtherSettings();
+            InspectRenderingSettings();
 
-            pdfViewer.m_Internal.m_BannerIsOpened = m_ParoxeBanner.DoOnGUI(pdfViewer.m_Internal.m_BannerIsOpened);
+            serializedObject.ApplyModifiedProperties();
+        }
+
+        private void InspectLoadSettings()
+        {
+            PDFViewer viewer = (PDFViewer)target;
 
             GUILayout.BeginVertical("Box");
-            pdfViewer.m_Internal.m_UiShowLoadOptions = PRHelper.GroupHeader("Load Options", pdfViewer.m_Internal.m_UiShowLoadOptions);
-            if (pdfViewer.m_Internal.m_UiShowLoadOptions)
-            {
-                pdfViewer.FileSource = (PDFViewer.FileSourceType)EditorGUILayout.EnumPopup("Source", pdfViewer.FileSource);
 
-                if (pdfViewer.FileSource == PDFViewer.FileSourceType.Resources
-                    || pdfViewer.FileSource == PDFViewer.FileSourceType.StreamingAssets
-                    || pdfViewer.FileSource == PDFViewer.FileSourceType.PersistentData)
+            if (EnterGroup("Load Settings", "Paroxe.PdfRenderer.PDFViewer.ShowLoadSettings"))
+            {
+                EditorGUILayout.PropertyField(m_FileSource);
+
+                PDFViewer.FileSourceType fileSourceType = (PDFViewer.FileSourceType)m_FileSource.enumValueIndex;
+
+                if (fileSourceType == PDFViewer.FileSourceType.Resources
+                    || fileSourceType == PDFViewer.FileSourceType.StreamingAssets
+                    || fileSourceType == PDFViewer.FileSourceType.PersistentData)
                 {
                     EditorGUI.indentLevel++;
 
-                    pdfViewer.Folder = EditorGUILayout.TextField("Folder", pdfViewer.Folder);
-                    pdfViewer.FileName = EditorGUILayout.TextField("File Name", pdfViewer.FileName);
+                    EditorGUILayout.PropertyField(m_Folder);
+                    EditorGUILayout.PropertyField(m_FileName);
 
-                    if (pdfViewer.FileSource == PDFViewer.FileSourceType.Resources)
+                    if (fileSourceType == PDFViewer.FileSourceType.Resources)
                     {
-
-                        if (File.Exists(Application.dataPath + "/Resources/" + pdfViewer.GetFileLocation())
-                            &&
-                            !File.Exists(Application.dataPath + "/Resources/" +
-                                         pdfViewer.GetFileLocation().Replace(".bytes", "") + ".bytes"))
+                        if (File.Exists(Application.dataPath + "/Resources/" + viewer.GetFileLocation())
+                            && !File.Exists(Application.dataPath + "/Resources/" + viewer.GetFileLocation().Replace(".bytes", "") + ".bytes"))
                         {
                             EditorGUILayout.HelpBox(
                                 "PDF file in resources folder need to have .bytes extension to allow PDFViewer to access it correctly. \n\r    For example => pdf_sample.pdf.bytes",
                                 MessageType.Warning);
-                            GUILayout.Space(10.0f);
                         }
                     }
 
                     EditorGUI.indentLevel--;
                 }
-                else if (pdfViewer.FileSource == PDFViewer.FileSourceType.Web)
+                else if (fileSourceType == PDFViewer.FileSourceType.Web)
                 {
                     EditorGUI.indentLevel++;
-                    pdfViewer.FileURL = EditorGUILayout.TextField("Url", pdfViewer.FileURL);
+                    EditorGUILayout.PropertyField(m_FileURL, new GUIContent("Url"));
                     EditorGUI.indentLevel--;
                 }
-                else if (pdfViewer.FileSource == PDFViewer.FileSourceType.FilePath)
+                else if (fileSourceType == PDFViewer.FileSourceType.FilePath)
                 {
                     EditorGUI.indentLevel++;
-                    pdfViewer.FilePath = EditorGUILayout.TextField("File Path", pdfViewer.FilePath);
-
+                    EditorGUILayout.PropertyField(m_FilePath);
                     EditorGUI.indentLevel--;
                 }
 
-                if (pdfViewer.FileSource != PDFViewer.FileSourceType.Bytes
-                    && pdfViewer.FileSource != PDFViewer.FileSourceType.None)
+                if (fileSourceType != PDFViewer.FileSourceType.Bytes && fileSourceType != PDFViewer.FileSourceType.None)
                 {
-
 #if UNITY_IOS
-
-            if (pdfViewer.FileSource == PDFViewer.FileSourceType.Web)
-            {
-                EditorGUILayout.BeginHorizontal();
-                EditorGUILayout.PrefixLabel(" ");
-                EditorGUILayout.HelpBox(
-                    "You may need to add NSAppTransportSecurity entry in info.plist of the XCode project to allow PDFViewer to download pdf from web:\n\r\n\r" +
-                    "<key>NSAppTransportSecurity</key>\n\r" +
-                    "    <dict>\n\r" +
-                    "    <key>NSAllowsArbitraryLoads</key>\n\r" +
-                    "        <true/>\n\r" +
-                    "</dict>", MessageType.Info);
-                EditorGUILayout.EndHorizontal();
-                GUILayout.Space(10.0f);
-
-            }
-#endif
-                    if (pdfViewer.FileSource == PDFViewer.FileSourceType.StreamingAssets
-                        || pdfViewer.FileSource == PDFViewer.FileSourceType.PersistentData
-                        || pdfViewer.FileSource == PDFViewer.FileSourceType.Resources
-                        || pdfViewer.FileSource == PDFViewer.FileSourceType.FilePath)
+                    if (fileSourceType == PDFViewer.FileSourceType.Web)
                     {
                         EditorGUILayout.BeginHorizontal();
                         EditorGUILayout.PrefixLabel(" ");
-                        GUI.color = Color.green;
+                        EditorGUILayout.HelpBox(
+                            "You may need to add NSAppTransportSecurity entry in info.plist of the XCode project to allow PDFViewer to download pdf from web:\n\r\n\r" +
+                            "<key>NSAppTransportSecurity</key>\n\r" +
+                            "    <dict>\n\r" +
+                            "    <key>NSAllowsArbitraryLoads</key>\n\r" +
+                            "        <true/>\n\r" +
+                            "</dict>", MessageType.Info);
+                        EditorGUILayout.EndHorizontal();
+                    }
+#endif
+                    if (fileSourceType == PDFViewer.FileSourceType.StreamingAssets
+                        || fileSourceType == PDFViewer.FileSourceType.PersistentData
+                        || fileSourceType == PDFViewer.FileSourceType.Resources
+                        || fileSourceType == PDFViewer.FileSourceType.FilePath)
+                    {
+                        EditorGUILayout.BeginHorizontal();
+                        EditorGUILayout.PrefixLabel(" ");
 
                         if (GUILayout.Button("Browse"))
                         {
                             string baseDirectory = "";
 
-                            if (pdfViewer.FileSource == PDFViewer.FileSourceType.PersistentData)
+                            if (fileSourceType == PDFViewer.FileSourceType.PersistentData)
                                 baseDirectory = Application.persistentDataPath;
-                            else if (pdfViewer.FileSource == PDFViewer.FileSourceType.StreamingAssets)
+                            else if (fileSourceType == PDFViewer.FileSourceType.StreamingAssets)
                                 baseDirectory = Application.streamingAssetsPath;
-                            else if(pdfViewer.FileSource == PDFViewer.FileSourceType.Resources)
+                            else if (fileSourceType == PDFViewer.FileSourceType.Resources)
                                 baseDirectory = "Assets/Resources";
-                            else if (pdfViewer.FileSource == PDFViewer.FileSourceType.FilePath)
+                            else if (fileSourceType == PDFViewer.FileSourceType.FilePath)
                             {
                                 string projectRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath, ".."));
                                 projectRoot = projectRoot.Replace('\\', '/');
@@ -153,57 +202,55 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                             if (Browse(baseDirectory, ref fileName, ref folder, ref filePath, ref useStreamingAssets, ref usePersistentData, ref useResources, ref useFilePath))
                             {
                                 if (useStreamingAssets)
-                                    pdfViewer.FileSource = PDFViewer.FileSourceType.StreamingAssets;
+                                    fileSourceType = PDFViewer.FileSourceType.StreamingAssets;
                                 else if (usePersistentData)
-                                    pdfViewer.FileSource = PDFViewer.FileSourceType.PersistentData;
+                                    fileSourceType = PDFViewer.FileSourceType.PersistentData;
                                 else if (useResources)
-                                    pdfViewer.FileSource = PDFViewer.FileSourceType.Resources;
+                                    fileSourceType = PDFViewer.FileSourceType.Resources;
                                 else if (useFilePath)
-                                    pdfViewer.FileSource = PDFViewer.FileSourceType.FilePath;
+                                    fileSourceType = PDFViewer.FileSourceType.FilePath;
 
-                                if (pdfViewer.FileSource != PDFViewer.FileSourceType.FilePath)
+                                if (fileSourceType != PDFViewer.FileSourceType.FilePath)
                                 {
-                                    pdfViewer.Folder = folder;
-                                    pdfViewer.FileName = fileName;
+                                    m_Folder.stringValue = folder;
+                                    m_FileName.stringValue = fileName;
                                 }
                                 else
                                 {
-                                    pdfViewer.FilePath = filePath;
+                                    m_FilePath.stringValue = filePath;
                                 }
                             }
                         }
-                        GUI.color = Color.white;
+
                         EditorGUILayout.EndHorizontal();
                     }
 
 #if UNITY_EDITOR_WIN
-                    if (pdfViewer.FileSource != PDFViewer.FileSourceType.Asset && pdfViewer.FileSource != PDFViewer.FileSourceType.DocumentObject)
+                    if (fileSourceType != PDFViewer.FileSourceType.Asset && fileSourceType != PDFViewer.FileSourceType.DocumentObject)
                     {
                         EditorGUILayout.BeginHorizontal();
                         EditorGUILayout.PrefixLabel(" ");
 
-                        GUI.color = Color.cyan;
-
-                        using (new EditorGUI.DisabledGroupScope(string.IsNullOrEmpty(pdfViewer.FileName.Trim())))
+                        using (new EditorGUI.DisabledGroupScope(string.IsNullOrEmpty(m_FileName.stringValue.Trim())))
                         {
                             if (GUILayout.Button("Reveal File"))
                             {
                                 string filePath = "";
 
-                                if (pdfViewer.FileSource == PDFViewer.FileSourceType.Resources)
+                                if (fileSourceType == PDFViewer.FileSourceType.Resources)
                                 {
-                                    filePath = Application.dataPath + "/Resources/" + pdfViewer.GetFileLocation();
+                                    filePath = Application.dataPath + "/Resources/" + viewer.GetFileLocation();
                                 }
                                 else
                                 {
-                                    filePath = pdfViewer.GetFileLocation();
+                                    filePath = viewer.GetFileLocation();
                                 }
 
-                                if (pdfViewer.FileSource != PDFViewer.FileSourceType.Web)
+                                if (fileSourceType != PDFViewer.FileSourceType.Web)
                                 {
                                     if (!File.Exists(filePath))
                                     {
-                                        if (pdfViewer.FileSource == PDFViewer.FileSourceType.Resources &&
+                                        if (fileSourceType == PDFViewer.FileSourceType.Resources &&
                                             File.Exists(filePath + ".bytes"))
                                         {
                                             ShowInExplorer(filePath + ".bytes");
@@ -235,33 +282,27 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                             }
                         }
 
-                        GUI.color = Color.white;
                         EditorGUILayout.EndHorizontal();
                     }
 #endif
                 }
 
-                if (pdfViewer.FileSource == PDFViewer.FileSourceType.Bytes)
+                if (fileSourceType == PDFViewer.FileSourceType.Bytes)
                 {
                     EditorGUI.indentLevel++;
-                    serializedObject.Update();
-
-                    GameObject oldObject = pdfViewer.BytesSupplierObject;
-
-                    var bytesSupplierObject = serializedObject.FindProperty("m_BytesSupplierObject");
-                    EditorGUILayout.PropertyField(bytesSupplierObject, new GUIContent("Supplier Object"));
-                    serializedObject.ApplyModifiedProperties();
+                    GameObject oldObject = (GameObject)m_BytesSupplierObject.objectReferenceValue;
+                    EditorGUILayout.PropertyField(m_BytesSupplierObject, new GUIContent("Supplier Object"));
 
                     int selectedIndex = 0;
 
-                    if (pdfViewer.BytesSupplierObject != null)
+                    if (m_BytesSupplierObject.objectReferenceValue != null)
                     {
                         try
                         {
                             List<BytesSupplierInfo> possibleSuppliers = new List<BytesSupplierInfo>();
                             possibleSuppliers.Add(new BytesSupplierInfo(null, null, ""));
 
-                            Component[] components = pdfViewer.BytesSupplierObject.GetComponents(typeof(Component));
+                            Component[] components = ((GameObject)m_BytesSupplierObject.objectReferenceValue).GetComponents(typeof(Component));
 
                             foreach (Component component in components)
                             {
@@ -276,12 +317,12 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                                     if ((method.GetParameters() == null || method.GetParameters().Length == 0)
                                         && method.ReturnType == typeof(byte[]))
                                     {
-                                        possibleSuppliers.Add(new BytesSupplierInfo(pdfViewer.BytesSupplierObject, component,
+                                        possibleSuppliers.Add(new BytesSupplierInfo(m_BytesSupplierObject.objectReferenceValue as GameObject, component,
                                             method.Name));
 
-                                        if (oldObject == pdfViewer.BytesSupplierObject
-                                            && method.Name == pdfViewer.BytesSupplierFunctionName
-                                            && component == pdfViewer.BytesSupplierComponent)
+                                        if (oldObject == m_BytesSupplierObject.objectReferenceValue
+                                            && method.Name == m_BytesSupplierFunctionName.stringValue
+                                            && component == m_BytesSupplierComponent.objectReferenceValue)
                                         {
                                             selectedIndex = possibleSuppliers.Count - 1;
                                         }
@@ -305,263 +346,356 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                             EditorGUILayout.BeginHorizontal();
                             EditorGUILayout.PrefixLabel("Supplier Function");
 
-                            var choiceIndex = EditorGUILayout.Popup(selectedIndex, supplierTitles);
+                            int choiceIndex = EditorGUILayout.Popup(selectedIndex, supplierTitles);
 
                             if (choiceIndex == 0)
                             {
-                                pdfViewer.BytesSupplierComponent = null;
-                                pdfViewer.BytesSupplierFunctionName = "";
+                                m_BytesSupplierComponent.objectReferenceValue = null;
+                                m_BytesSupplierFunctionName.stringValue = "";
                             }
                             else
                             {
-                                pdfViewer.BytesSupplierComponent = possibleSuppliers[choiceIndex].m_Behaviour;
-                                pdfViewer.BytesSupplierFunctionName = possibleSuppliers[choiceIndex].m_MethodName;
+                                m_BytesSupplierComponent.objectReferenceValue = possibleSuppliers[choiceIndex].m_Behaviour;
+                                m_BytesSupplierFunctionName.stringValue = possibleSuppliers[choiceIndex].m_MethodName;
                             }
 
                             EditorGUILayout.EndHorizontal();
                         }
                         catch (Exception)
                         {
-                            pdfViewer.BytesSupplierComponent = null;
-                            pdfViewer.BytesSupplierFunctionName = "";
+                            m_BytesSupplierComponent.objectReferenceValue = null;
+                            m_BytesSupplierFunctionName.stringValue = "";
                         }
                     }
 
                     EditorGUI.indentLevel--;
                 }
 
-                if (pdfViewer.FileSource == PDFViewer.FileSourceType.Asset)
+                if (fileSourceType == PDFViewer.FileSourceType.Asset)
                 {
-                    pdfViewer.PDFAsset =
-                        (PDFAsset)EditorGUILayout.ObjectField("PDF Asset", pdfViewer.PDFAsset, typeof(PDFAsset), true);
+                    EditorGUILayout.PropertyField(m_PDFAsset);
                 }
 
-                pdfViewer.LoadOnEnable = EditorGUILayout.Toggle("Load On Enable", pdfViewer.LoadOnEnable);
-                pdfViewer.UnloadOnDisable = EditorGUILayout.Toggle("Unload On Disable", pdfViewer.UnloadOnDisable);
+                EditorGUILayout.PropertyField(m_LoadOnEnable);
+                EditorGUILayout.PropertyField(m_UnloadOnDisable);
 
-                if (pdfViewer.FileSource == PDFViewer.FileSourceType.Asset)
+                if (fileSourceType == PDFViewer.FileSourceType.Asset)
                 {
                     EditorGUILayout.BeginHorizontal();
                     EditorGUILayout.PrefixLabel("");
-                    EditorGUILayout.HelpBox(
-                        "To convert pdf file to .asset right click on pdf and select \"PDF Renderer\\Convert to .asset\"",
-                        MessageType.Info);
+                    EditorGUILayout.HelpBox("To convert pdf file to .asset right click on pdf and select \"PDF Renderer\\Convert to .asset\"", MessageType.Info);
                     EditorGUILayout.EndHorizontal();
-                    GUILayout.Space(10.0f);
                 }
-
-                GUILayout.Space(10.0f);
+                GUILayout.Space(4.0f);
             }
             GUILayout.EndVertical();
+        }
 
-
+        private void InspectSecuritySettings()
+        {
             GUILayout.BeginVertical("Box");
-            pdfViewer.m_Internal.m_UiShowPasswordOptions = PRHelper.GroupHeader("Password Options", pdfViewer.m_Internal.m_UiShowPasswordOptions);
-            if (pdfViewer.m_Internal.m_UiShowPasswordOptions)
-            {
-                EditorGUI.indentLevel++;
-                pdfViewer.Password = EditorGUILayout.PasswordField("Password", pdfViewer.Password);
-                EditorGUI.indentLevel--;
 
-                GUILayout.Space(10.0f);
+            if (EnterGroup("Security Settings", "Paroxe.PdfRenderer.PDFViewer.ShowPasswordSettings"))
+            {
+                EditorGUILayout.PropertyField(m_Password);
+
+                GUILayout.Space(4.0f);
             }
-            GUILayout.EndVertical();
 
+            GUILayout.EndVertical();
+        }
+
+        private void InspectViewerSettings()
+        {
+            PDFViewer viewer = (PDFViewer)target;
 
             GUILayout.BeginVertical("Box");
-            pdfViewer.m_Internal.m_UiShowViewerSettings = PRHelper.GroupHeader("Viewer Settings", pdfViewer.m_Internal.m_UiShowViewerSettings);
-            if (pdfViewer.m_Internal.m_UiShowViewerSettings)
+
+            if (EnterGroup("Viewer Settings", "Paroxe.PdfRenderer.PDFViewer.ShowViewerSettings"))
             {
-                pdfViewer.PageFitting = (PDFViewer.PageFittingType)EditorGUILayout.EnumPopup("Page Fitting", pdfViewer.PageFitting);
-                if (pdfViewer.PageFitting == PDFViewer.PageFittingType.Zoom || Application.isPlaying)
+                EditorGUILayout.PropertyField(m_PageFitting);
+
+                PDFViewer.PageFittingType pageFitting = (PDFViewer.PageFittingType)m_PageFitting.enumValueIndex;
+
+                if (pageFitting == PDFViewer.PageFittingType.Zoom || Application.isPlaying)
                 {
                     EditorGUI.indentLevel++;
-                    pdfViewer.ZoomFactor = EditorGUILayout.FloatField("Zoom", pdfViewer.ZoomFactor,
-                        GUILayout.ExpandWidth(false));
+                    EditorGUILayout.PropertyField(m_ZoomFactor, GUILayout.ExpandWidth(false));
                     EditorGUI.indentLevel--;
                 }
 
-                pdfViewer.VerticalMarginBetweenPages = EditorGUILayout.FloatField("Page Margins (px)",
-                    pdfViewer.VerticalMarginBetweenPages, GUILayout.ExpandWidth(false));
-                pdfViewer.MinZoomFactor = EditorGUILayout.FloatField("Minimum Zoom", pdfViewer.MinZoomFactor,
-                    GUILayout.ExpandWidth(false));
-                pdfViewer.MaxZoomFactor = EditorGUILayout.FloatField("Maximum Zoom", pdfViewer.MaxZoomFactor,
-                    GUILayout.ExpandWidth(false));
-                pdfViewer.ZoomStep = EditorGUILayout.FloatField("Zoom Step", pdfViewer.ZoomStep,
-                    GUILayout.ExpandWidth(false));
-                pdfViewer.ScrollSensitivity = EditorGUILayout.FloatField("Scroll Sensitivity (px)",
-                    pdfViewer.ScrollSensitivity, GUILayout.ExpandWidth(false));
-                pdfViewer.ShowTopBar = EditorGUILayout.Toggle("Show Top Bar", pdfViewer.ShowTopBar);
-                pdfViewer.ShowVerticalScrollBar = EditorGUILayout.Toggle("Show VScrollBar", pdfViewer.ShowVerticalScrollBar);
-                pdfViewer.ShowHorizontalScrollBar = EditorGUILayout.Toggle("Show HScrollBar",
-                    pdfViewer.ShowHorizontalScrollBar);
+                EditorGUI.BeginChangeCheck();
+                EditorGUILayout.PropertyField(m_VerticalMarginBetweenPages, new GUIContent("Page Margins (px)"), GUILayout.ExpandWidth(false));
 
-                if (pdfViewer.m_Internal.m_LeftPanel != null)
+                if (EditorGUI.EndChangeCheck())
                 {
-                    pdfViewer.ShowBookmarksViewer = EditorGUILayout.Toggle("Show Bookmarks Viewer", pdfViewer.ShowBookmarksViewer);
-                    pdfViewer.ShowThumbnailsViewer = EditorGUILayout.Toggle("Show Thumbnails Viewer", pdfViewer.ShowThumbnailsViewer);
+                    if (m_VerticalMarginBetweenPages.floatValue < 0.0f)
+                        m_VerticalMarginBetweenPages.floatValue = 0.0f;
                 }
 
-                pdfViewer.AllowOpenURL = EditorGUILayout.Toggle("Allow Open URL", pdfViewer.AllowOpenURL);
+                EditorGUI.BeginChangeCheck();
+                EditorGUILayout.PropertyField(m_MinZoomFactor, GUILayout.ExpandWidth(false));
 
-                Color oldColor = pdfViewer.BackgroundColor;
-                pdfViewer.BackgroundColor = EditorGUILayout.ColorField("Viewer BG Color", pdfViewer.BackgroundColor);
-
-                if (oldColor != pdfViewer.BackgroundColor)
+                if (EditorGUI.EndChangeCheck())
                 {
-                    EditorUtility.SetDirty(pdfViewer.m_Internal.m_Viewport.GetComponent<Image>());
+                    if (m_MinZoomFactor.floatValue < 0.01f)
+                        m_MinZoomFactor.floatValue = 0.01f;
                 }
 
-                GUILayout.Space(10.0f);
+                EditorGUI.BeginChangeCheck();
+                EditorGUILayout.PropertyField(m_MaxZoomFactor, GUILayout.ExpandWidth(false));
+
+                if (EditorGUI.EndChangeCheck())
+                {
+                    if (m_MaxZoomFactor.floatValue < m_MinZoomFactor.floatValue)
+                        m_MaxZoomFactor.floatValue = m_MinZoomFactor.floatValue;
+                }
+
+                EditorGUILayout.PropertyField(m_ZoomStep, GUILayout.ExpandWidth(false));
+                EditorGUILayout.PropertyField(m_ScrollSensitivity, new GUIContent("Scroll Sensitivity (px)"), GUILayout.ExpandWidth(false));
+
+                Rect controlRect = EditorGUILayout.GetControlRect(true);
+                GUIContent guiLabel = new GUIContent("Show Top Bar");
+
+                using (new EditorGUI.PropertyScope(controlRect, guiLabel, m_ShowTopBar))
+                {
+                    bool showTopBar = EditorGUI.Toggle(controlRect, guiLabel, viewer.ShowTopBar);
+
+                    if (showTopBar != viewer.ShowTopBar)
+                    {
+                        Undo.SetCurrentGroupName("PDFViewer.ShowTopBar");
+                        int group = Undo.GetCurrentGroup();
+                        Undo.RegisterFullObjectHierarchyUndo(viewer.m_Internal, "PDFViewer.ShowTopBar");
+
+                        viewer.ShowTopBar = showTopBar;
+
+                        Undo.CollapseUndoOperations(group);
+
+                        m_ShowTopBar.boolValue = viewer.ShowTopBar;
+                    }
+                }
+
+                controlRect = EditorGUILayout.GetControlRect(true);
+                guiLabel = new GUIContent("Show VScrollBar");
+
+                using (new EditorGUI.PropertyScope(controlRect, guiLabel, m_ShowVerticalScrollBar))
+                {
+                    bool showVerticalScrollBar = EditorGUI.Toggle(controlRect, guiLabel, viewer.ShowVerticalScrollBar);
+
+                    if (showVerticalScrollBar != viewer.ShowVerticalScrollBar)
+                    {
+                        Undo.SetCurrentGroupName("PDFViewer.VScrollBar");
+                        int group = Undo.GetCurrentGroup();
+                        Undo.RegisterFullObjectHierarchyUndo(viewer.m_Internal, "PDFViewer.VScrollBar");
+
+                        viewer.ShowVerticalScrollBar = showVerticalScrollBar;
+
+                        Undo.CollapseUndoOperations(group);
+
+                        m_ShowVerticalScrollBar.boolValue = viewer.ShowVerticalScrollBar;
+                    }
+                }
+
+                controlRect = EditorGUILayout.GetControlRect(true);
+                guiLabel = new GUIContent("Show HScrollBar");
+
+                using (new EditorGUI.PropertyScope(controlRect, guiLabel, m_ShowHorizontalScrollBar))
+                {
+                    bool showHorizontalScrollBar = EditorGUI.Toggle(controlRect, "Show HScrollBar", viewer.ShowHorizontalScrollBar);
+
+                    if (showHorizontalScrollBar != viewer.ShowHorizontalScrollBar)
+                    {
+                        Undo.SetCurrentGroupName("PDFViewer.HScrollBar");
+                        int group = Undo.GetCurrentGroup();
+                        Undo.RegisterFullObjectHierarchyUndo(viewer.m_Internal, "PDFViewer.HScrollBar");
+
+                        viewer.ShowHorizontalScrollBar = showHorizontalScrollBar;
+
+                        Undo.CollapseUndoOperations(group);
+
+                        m_ShowHorizontalScrollBar.boolValue = viewer.ShowHorizontalScrollBar;
+                    }
+                }
+
+
+                if (viewer.m_Internal.LeftPanel != null)
+                {
+                    controlRect = EditorGUILayout.GetControlRect(true);
+                    guiLabel = new GUIContent("Show Bookmarks Viewer");
+
+                    using (new EditorGUI.PropertyScope(controlRect, guiLabel, m_ShowBookmarksViewer))
+                    {
+                        bool showBookmarksViewer = EditorGUI.Toggle(controlRect, guiLabel, viewer.ShowBookmarksViewer);
+
+                        if (showBookmarksViewer != viewer.ShowBookmarksViewer)
+                        {
+                            Undo.SetCurrentGroupName("PDFViewer.ShowBookmarksViewer");
+                            int group = Undo.GetCurrentGroup();
+                            Undo.RegisterFullObjectHierarchyUndo(viewer.m_Internal, "PDFViewer.ShowBookmarksViewer");
+
+                            viewer.ShowBookmarksViewer = showBookmarksViewer;
+
+                            Undo.CollapseUndoOperations(group);
+
+                            m_ShowBookmarksViewer.boolValue = viewer.ShowBookmarksViewer;
+                        }
+                    }
+
+                    controlRect = EditorGUILayout.GetControlRect(true);
+                    guiLabel = new GUIContent("Show Thumbnails Viewer");
+
+                    using (new EditorGUI.PropertyScope(controlRect, guiLabel, m_ShowThumbnailsViewer))
+                    {
+                        bool showThumbnailsViewer = EditorGUI.Toggle(controlRect, guiLabel, viewer.ShowThumbnailsViewer);
+
+                        if (showThumbnailsViewer != viewer.ShowThumbnailsViewer)
+                        {
+                            Undo.SetCurrentGroupName("PDFViewer.ShowThumbnailsViewer");
+                            int group = Undo.GetCurrentGroup();
+                            Undo.RegisterFullObjectHierarchyUndo(viewer.m_Internal, "PDFViewer.ShowThumbnailsViewer");
+
+                            viewer.ShowThumbnailsViewer = showThumbnailsViewer;
+
+                            Undo.CollapseUndoOperations(group);
+
+                            m_ShowThumbnailsViewer.boolValue = viewer.ShowThumbnailsViewer;
+                        }
+                    }
+                }
+
+                Color oldColor = viewer.BackgroundColor;
+                Color newColor = EditorGUILayout.ColorField("Viewer BG Color", viewer.BackgroundColor);
+
+                if (oldColor != newColor)
+                {
+                    Undo.RecordObject(viewer.m_Internal.Viewport.GetComponent<Image>(), "PDFViewerBackground");
+
+                    viewer.BackgroundColor = newColor;
+                }
+
+                GUILayout.Space(4.0f);
             }
             GUILayout.EndVertical();
+        }
 
+        private void InspectLinksSettings()
+        {
+            GUILayout.BeginVertical("Box");
 
-            if (pdfViewer.m_Internal.m_SearchPanel != null)
+            if (EnterGroup("Links Settings", "Paroxe.PdfRenderer.PDFViewer.ShowLinksSettings"))
+            {
+                EditorGUILayout.PropertyField(m_ChangeCursorWhenOverURL, new GUIContent("Change Cursor"));
+                EditorGUILayout.PropertyField(m_AllowOpenURL, new GUIContent("Allow Open URL"));
+
+                GUILayout.Space(4.0f);
+            }
+
+            GUILayout.EndVertical();
+        }
+
+        private void InspectSearchSettings()
+        {
+            PDFViewer viewer = (PDFViewer)target;
+
+            if (viewer.m_Internal.SearchPanel != null)
             {
                 GUILayout.BeginVertical("Box");
-                pdfViewer.m_Internal.m_UiShowSearchSettings = PRHelper.GroupHeader("Search Settings", pdfViewer.m_Internal.m_UiShowSearchSettings);
-                if (pdfViewer.m_Internal.m_UiShowSearchSettings)
-                {
-                    pdfViewer.SearchResultColor = EditorGUILayout.ColorField("Result Color", pdfViewer.SearchResultColor);
-                    pdfViewer.SearchResultPadding = EditorGUILayout.Vector2Field("Result Padding",
-                        pdfViewer.SearchResultPadding);
-                    pdfViewer.SearchTimeBudgetPerFrame = EditorGUILayout.Slider("Time (% per frame)",
-                        pdfViewer.SearchTimeBudgetPerFrame, 0.0f, 1.0f);
 
-                    GUILayout.Space(10.0f);
+                if (EnterGroup("Search Settings", "Paroxe.PdfRenderer.PDFViewer.ShowSearchSettings"))
+                {
+                    EditorGUILayout.PropertyField(m_SearchResultColor, new GUIContent("Result Color"));
+                    EditorGUILayout.PropertyField(m_SearchResultPadding, new GUIContent("Result Padding"));
+                    EditorGUILayout.PropertyField(m_SearchTimeBudgetPerFrame, new GUIContent("Time (% per frame)"));
+
+                    GUILayout.Space(4.0f);
                 }
+
                 GUILayout.EndVertical();
             }
+        }
 
-
+        private void InspectOtherSettings()
+        {
             GUILayout.BeginVertical("Box");
-            pdfViewer.m_Internal.m_UiShowOtherSettings = PRHelper.GroupHeader("Other Settings", pdfViewer.m_Internal.m_UiShowOtherSettings);
-            if (pdfViewer.m_Internal.m_UiShowOtherSettings)
+
+            if (EnterGroup("Other Settings", "Paroxe.PdfRenderer.PDFViewer.ShowOtherSettings"))
             {
-                pdfViewer.ParagraphZoomingEnable = EditorGUILayout.Toggle("Paragraph Zooming", pdfViewer.ParagraphZoomingEnable, GUILayout.ExpandWidth(false));
-                if (pdfViewer.ParagraphZoomingEnable)
+                EditorGUILayout.PropertyField(m_ParagraphZoomingEnable, new GUIContent("Paragraph Zooming"), GUILayout.ExpandWidth(false));
+
+                if (m_ParagraphZoomingEnable.boolValue)
                 {
-                    pdfViewer.ParagraphZoomFactor = EditorGUILayout.FloatField("    Zoom Factor", pdfViewer.ParagraphZoomFactor, GUILayout.ExpandWidth(false));
-                    pdfViewer.ParagraphDetectionThreshold = EditorGUILayout.FloatField("    Detection Threshold (px)", pdfViewer.ParagraphDetectionThreshold, GUILayout.ExpandWidth(false));
-                }
-                pdfViewer.PageTileTexture = (Texture2D)EditorGUILayout.ObjectField("Page Tile Texture", pdfViewer.PageTileTexture, typeof(Texture2D), true);
-                pdfViewer.PageColor = EditorGUILayout.ColorField("Page Color", pdfViewer.PageColor);
-
-
-                GUILayout.Space(10.0f);
-            }
-            GUILayout.EndVertical();
-
-
-            GUILayout.BeginVertical("Box");
-            pdfViewer.m_Internal.m_UiShowRenderSettings = PRHelper.GroupHeader("Render Settings", pdfViewer.m_Internal.m_UiShowRenderSettings);
-            if (pdfViewer.m_Internal.m_UiShowRenderSettings)
-            {
-                pdfViewer.MaxZoomFactorTextureQuality = EditorGUILayout.FloatField("Maximum Quality",
-                    pdfViewer.MaxZoomFactorTextureQuality, GUILayout.ExpandWidth(false));
-                pdfViewer.RenderAnnotations = EditorGUILayout.Toggle("Render Annotations", pdfViewer.RenderAnnotations,
-                    GUILayout.ExpandWidth(false));
-                pdfViewer.RenderGrayscale = EditorGUILayout.Toggle("Render Grayscale", pdfViewer.RenderGrayscale,
-                    GUILayout.ExpandWidth(false));
-
-                GUILayout.Space(10.0f);
-            }
-            GUILayout.EndVertical();
-
-            GUILayout.BeginVertical("Box");
-            pdfViewer.m_Internal.m_UiShowDebugSettings = PRHelper.GroupHeader("Debug Settings", pdfViewer.m_Internal.m_UiShowDebugSettings);
-            if (pdfViewer.m_Internal.m_UiShowDebugSettings)
-            {
-                pdfViewer.m_Internal.m_DrawDefaultInspector = EditorGUILayout.Toggle("Default Inspector", pdfViewer.m_Internal.m_DrawDefaultInspector);
-
-                if (pdfViewer.m_Internal.m_DrawDefaultInspector)
-                {
-                    GUILayout.Space(10.0f);
-                    DrawDefaultInspector();
+                    EditorGUILayout.PropertyField(m_ParagraphZoomFactor, new GUIContent("    Zoom Factor"), GUILayout.ExpandWidth(false));
+                    EditorGUILayout.PropertyField(m_ParagraphDetectionThreshold, new GUIContent("    Detection Threshold (px)"), GUILayout.ExpandWidth(false));
                 }
 
-                GUILayout.Space(10.0f);
+                GUILayout.Space(4.0f);
             }
 
             GUILayout.EndVertical();
+        }
 
-            if (GUI.changed)
+        private void InspectRenderingSettings()
+        {
+            PDFViewer viewer = (PDFViewer)target;
+
+            GUILayout.BeginVertical("Box");
+
+            if (EnterGroup("Render Settings", "Paroxe.PdfRenderer.PDFViewer.ShowRenderSettings"))
             {
-                EditorUtility.SetDirty(pdfViewer);
-                EditorUtility.SetDirty(pdfViewer.m_Internal);
-            }
-        }
+                Rect controlRect = EditorGUILayout.GetControlRect(true);
+                GUIContent guiLabel = new GUIContent("Maximum Quality");
 
-        protected virtual void OnDisable()
-        {
-            DestroyImmediate(m_Background1.normal.background);
-            DestroyImmediate(m_Background2.normal.background);
-            DestroyImmediate(m_Background3.normal.background);
-        }
-
-        protected virtual void OnEnable()
-        {
-            pdfViewer = (PDFViewer)target;
-
-            m_Background1 = new GUIStyle();
-            m_Background1.normal.background = MakeTex(600, 1, new Color(1.0f, 1.0f, 1.0f, 0.1f));
-            m_Background2 = new GUIStyle();
-            m_Background2.normal.background = MakeTex(600, 1, new Color(1.0f, 1.0f, 1.0f, 0.0f));
-            m_Background3 = new GUIStyle();
-            m_Background3.normal.background = MakeTex(600, 1, new Color(1.0f, 1.0f, 1.0f, 0.05f));
-
-            MonoScript script = MonoScript.FromScriptableObject(this);
-            string scriptPath = AssetDatabase.GetAssetPath(script);
-            m_Logo =
-                (Texture2D)
-                    AssetDatabase.LoadAssetAtPath(Path.GetDirectoryName(scriptPath) + "/logo_pv.png", typeof(Texture2D));
-
-            if (m_ParoxeBanner == null)
-                m_ParoxeBanner = new PRParoxeBanner(Path.GetDirectoryName(scriptPath));
-        }
-
-        private static bool IsPrefabGhost(Transform This)
-        {
-            var TempObject = new GameObject();
-            try
-            {
-                TempObject.transform.parent = This.parent;
-
-                var OriginalIndex = This.GetSiblingIndex();
-
-                This.SetSiblingIndex(int.MaxValue);
-                if (This.GetSiblingIndex() == 0)
+                using (new EditorGUI.PropertyScope(controlRect, guiLabel, m_MaxZoomFactorTextureQuality))
                 {
-                    return true;
+                    float maxRenderingQuality = EditorGUI.FloatField(controlRect, guiLabel, viewer.MaxZoomFactorTextureQuality);
+
+                    if (maxRenderingQuality != viewer.MaxZoomFactorTextureQuality)
+                    {
+                        viewer.MaxZoomFactorTextureQuality = maxRenderingQuality;
+
+                        m_MaxZoomFactorTextureQuality.floatValue = viewer.MaxZoomFactorTextureQuality;
+                    }
                 }
 
-                This.SetSiblingIndex(OriginalIndex);
-                return false;
+                EditorGUILayout.PropertyField(m_RenderAnnotations, new GUIContent("Render Annotations"), GUILayout.ExpandWidth(false));
+                EditorGUILayout.PropertyField(m_RenderGrayscale, new GUIContent("Render Grayscale"), GUILayout.ExpandWidth(false));
+
+                GUILayout.Space(4.0f);
             }
-            finally
+
+            GUILayout.EndVertical();
+        }
+
+        private static bool EnterGroup(string title, string key)
+        {
+            bool enterGroup = EditorPrefs.GetBool(key, true);
+
+            if (enterGroup != PRHelper.GroupHeader(title, enterGroup))
             {
-                UnityEngine.Object.DestroyImmediate(TempObject);
+                enterGroup = !enterGroup;
+
+                EditorPrefs.SetBool(key, enterGroup);
             }
+
+            return enterGroup;
         }
 
         private static void ShowInExplorer(string filePath)
         {
             filePath = Path.GetFullPath(filePath.Replace(@"/", @"\"));
+
             if (File.Exists(filePath))
-            {
                 System.Diagnostics.Process.Start("explorer.exe", "/select," + filePath);
-            }
         }
 
         private static bool Browse(string startPath, ref string filename, ref string folder, ref string filePath, ref bool isStreamingAsset, ref bool isPersistentData, ref bool isResourcesAsset, ref bool isFilePath)
         {
             bool result = false;
-            string path = UnityEditor.EditorUtility.OpenFilePanel("Browse video file", startPath, "*");
+            string path = EditorUtility.OpenFilePanel("Browse video file", startPath, "*");
 
             if (!string.IsNullOrEmpty(path) && !path.EndsWith(".meta"))
             {
-                string projectRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath, ".."));
+                string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
                 projectRoot = projectRoot.Replace('\\', '/');
 
                 if (path.StartsWith(projectRoot))
@@ -569,9 +703,9 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                     if (path.StartsWith(Application.streamingAssetsPath))
                     {
                         path = path.Remove(0, Application.streamingAssetsPath.Length);
-                        filename = System.IO.Path.GetFileName(path);
-                        path = System.IO.Path.GetDirectoryName(path);
-                        if (path.StartsWith(System.IO.Path.DirectorySeparatorChar.ToString()) || path.StartsWith(System.IO.Path.AltDirectorySeparatorChar.ToString()))
+                        filename = Path.GetFileName(path);
+                        path = Path.GetDirectoryName(path);
+                        if (path.StartsWith(Path.DirectorySeparatorChar.ToString()) || path.StartsWith(Path.AltDirectorySeparatorChar.ToString()))
                         {
                             path = path.Remove(0, 1);
                         }
@@ -585,9 +719,9 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                     else if (path.StartsWith(Application.persistentDataPath))
                     {
                         path = path.Remove(0, Application.persistentDataPath.Length);
-                        filename = System.IO.Path.GetFileName(path);
-                        path = System.IO.Path.GetDirectoryName(path);
-                        if (path.StartsWith(System.IO.Path.DirectorySeparatorChar.ToString()) || path.StartsWith(System.IO.Path.AltDirectorySeparatorChar.ToString()))
+                        filename = Path.GetFileName(path);
+                        path = Path.GetDirectoryName(path);
+                        if (path.StartsWith(Path.DirectorySeparatorChar.ToString()) || path.StartsWith(Path.AltDirectorySeparatorChar.ToString()))
                         {
                             path = path.Remove(0, 1);
                         }
@@ -601,9 +735,9 @@ namespace Paroxe.PdfRenderer.Internal.Viewer
                     else if (path.StartsWith(Application.dataPath + "/Resources"))
                     {
                         path = path.Remove(0, (Application.dataPath + "/Resources").Length);
-                        filename = System.IO.Path.GetFileName(path);
-                        path = System.IO.Path.GetDirectoryName(path);
-                        if (path.StartsWith(System.IO.Path.DirectorySeparatorChar.ToString()) || path.StartsWith(System.IO.Path.AltDirectorySeparatorChar.ToString()))
+                        filename = Path.GetFileName(path);
+                        path = Path.GetDirectoryName(path);
+                        if (path.StartsWith(Path.DirectorySeparatorChar.ToString()) || path.StartsWith(Path.AltDirectorySeparatorChar.ToString()))
                         {
                             path = path.Remove(0, 1);
                         }
