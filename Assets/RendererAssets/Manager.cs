@@ -10,7 +10,12 @@ using UnityEditor;
 using UnityEngine.EventSystems;
 using System.Runtime.InteropServices;
 using UnityEngine.Networking;
+
+#if !UNITY_EDITOR && UNITY_WEBGL
 using MiniJSON;
+#else
+using Crosstales.FB;
+#endif
 
 
 public class Manager : MonoBehaviour
@@ -79,7 +84,10 @@ public class Manager : MonoBehaviour
         });
 
         PdfPrototype.OnSelectedPdf += HandlePdf;
+
+#if !UNITY_EDITOR && UNITY_WEBGL
         FileBrowserWebgl.OnFileChoose += OnFileChooseCallback;
+#endif
 
         //fileNameTxt.gameObject.SetActive(false);
     }
@@ -134,8 +142,10 @@ public class Manager : MonoBehaviour
     {
         //m_PDFViewer.OnPageChanged += ShowPage;
         PdfPrototype.OnSelectedPdf -= HandlePdf;
-        FileBrowserWebgl.OnFileChoose -= OnFileChooseCallback;
 
+#if !UNITY_EDITOR && UNITY_WEBGL
+        FileBrowserWebgl.OnFileChoose -= OnFileChooseCallback;
+#endif
     }
 
     public void OnChoosePDF()
@@ -318,6 +328,9 @@ public class Manager : MonoBehaviour
     } */
 
     #region webgl file browser implementation
+
+
+#if !UNITY_EDITOR && UNITY_WEBGL
     private void OnFileChooseCallback(string callbackData)
     {
         Dictionary<string, object> value = Json.Deserialize(callbackData) as Dictionary<string, object>;
@@ -346,10 +359,20 @@ public class Manager : MonoBehaviour
             }
         }
     }
+#endif
 
     public void OnFileBrowserDown()
     {
+#if !UNITY_EDITOR && UNITY_WEBGL
         FileBrowserWebgl.ChooseFile(".pdf");
+#else
+        string path = FileBrowser.OpenSingleFile("Open Pdf file", null, "pdf");
+        byte[] buffer = File.ReadAllBytes(path);
+        Debug.Log(string.Format("{0} bytes file choosed", buffer.Length));
+        m_PDFViewer.LoadDocumentFromBuffer(buffer);
+        SelectionScreen.SetActive(false);
+        choosePdfCanvas.SetActive(false);
+#endif
     }
     #endregion
 }
